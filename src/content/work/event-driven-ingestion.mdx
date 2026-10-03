@@ -1,0 +1,56 @@
+---
+title: Cutting ingestion latency from 2 hours to under 5 minutes
+summary: I built asynchronous, event-driven ingestion on Kinesis, Lambda, and SNS for 3M+ transactions a day.
+org: Delta Air Lines
+order: 7
+headline:
+  value: '<5 min'
+  label: end-to-end latency, down from 2 hours
+figures:
+  - value: '3M+'
+    label: transactions a day
+  - value: '99.9%'
+    label: uptime
+  - value: '<5 min'
+    label: end-to-end latency, from 2 hours
+tags:
+  - Amazon Kinesis
+  - AWS Lambda
+  - Amazon SNS
+  - Event-driven architecture
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Compare from '../../components/viz/Compare.astro';
+
+## Context
+
+End-to-end latency for transaction data was 2 hours, so anything downstream was always working from data that was hours old.
+
+## What I did
+
+I built asynchronous, event-driven ingestion on Kinesis, Lambda, and SNS to carry 3M+ transactions a day.
+
+<Flow
+  title="Event-driven ingestion"
+  steps={[
+    { label: 'Transactions', note: '3M+ a day' },
+    { label: 'Amazon Kinesis', tone: 'signal' },
+    { label: 'AWS Lambda' },
+    { label: 'Amazon SNS' },
+    { label: 'Downstream consumers' },
+  ]}
+/>
+
+## Result
+
+<Compare
+  title="End-to-end latency, minutes"
+  rows={[
+    { label: 'Before', value: 120, display: '2 hours', tone: 'before' },
+    { label: 'After', value: 5, display: '<5 min', tone: 'after' },
+  ]}
+  caption="Linear scale. The after bar shows the 5-minute upper bound."
+/>
+
+End-to-end latency fell from 2 hours to under 5 minutes, at 99.9% uptime.

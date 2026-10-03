@@ -20,7 +20,7 @@ npm run preview    # serve the production build
 | To change… | Edit |
 | --- | --- |
 | Hero, experience, skills, about, education, contact links | `src/data/profile.ts` |
-| A case study or project | `src/content/work/<slug>.md` |
+| A case study or project | `src/content/work/<slug>.mdx` (`featured: true` puts it on the home page; all appear on `/work/`) |
 | A blog post | `src/content/blog/<slug>.md` |
 | The résumé PDF | replace `public/Sai_Sarvade_Resume.pdf` (keep the name, or update `resume` in `profile.ts`) |
 | Headshot | replace `src/assets/headshot.jpg` (4:5 portrait works best) |
@@ -28,6 +28,9 @@ npm run preview    # serve the production build
 | Hero pipeline diagram labels | `pipeline` in `src/data/profile.ts` |
 | At-a-glance card, optional "open to roles" line | `glance` and `hero.availability` in `src/data/profile.ts` |
 | Approach section (habits + illustrative snippets) | `principles` in `src/data/profile.ts` |
+| Impact numbers under the hero | `impact` in `src/data/profile.ts` |
+| Typewriter roles | `hero.roles` in `src/data/profile.ts` |
+| Icons | `src/icons/*.svg` (Tabler Icons, MIT), used via `<Icon name="..." />` |
 
 ## Add a blog post
 
@@ -37,6 +40,14 @@ npm run preview    # serve the production build
 4. Push to `main`.
 
 The "Writing" section on the home page, the nav link, `/portfolio/blog/`, and the RSS feed (`/portfolio/rss.xml`) all appear automatically once at least one published post exists.
+
+## Diagrams and charts in case studies
+
+Case studies are MDX, so they can use the built-in components in `src/components/viz/`:
+
+- `<Flow steps={[...]} title="..." />`: an architecture flow that stacks vertically on phones. Step `tone` can be `signal`, `caution` or `muted`.
+- `<Compare title="..." rows={[...]} caption="..." />`: before/after bars drawn to one linear scale, values labeled.
+- `<Callout label="The call">...</Callout>`: highlights the judgment call.
 
 ## Add a project or case study
 
@@ -59,9 +70,13 @@ If the Actions tab still shows a **pages build and deployment** run (with Jekyll
 
 In `astro.config.mjs`, set `site` to the new origin (e.g. `https://saisarvade.dev`) and `base` to `'/'`, add `public/CNAME` with the domain, then configure DNS as described in GitHub's Pages docs. Every link goes through `url()` in `src/lib/url.ts`, so nothing else needs to change.
 
+## Email address
+
+The address never appears as plain text in the HTML, JSON-LD or `resume.json`. `Contact.astro` shows it as text plus an @ icon and assembles the real address in the browser only when someone clicks Copy or Write to me. The résumé PDF is the one place it still appears in plain text.
+
 ## Other scripts
 
-- `src/pages/resume.json.ts` publishes the résumé as data at `/portfolio/resume.json` ([JSON Resume](https://jsonresume.org/schema) format), generated from `profile.ts`. It never includes a phone number.
+- `src/pages/resume.json.ts` publishes the résumé as data at `/portfolio/resume.json` ([JSON Resume](https://jsonresume.org/schema) format), generated from `profile.ts`. It never includes a phone number or email address.
 - `scripts/check-links.mjs` checks every internal link and asset in `dist/`, including the `/portfolio/` base path and `#fragment` targets.
 - `scripts/subset-font.py` rebuilds the trimmed Archivo font in `src/fonts/` (needs `pip install fonttools brotli`).
 - `scripts/render-images.py` regenerates `public/og.png` and the PNG icons (needs Python Playwright).

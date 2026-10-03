@@ -1,0 +1,35 @@
+---
+/*
+  A highlighted aside inside a case study, for the judgment call or the line held.
+*/
+interface Props {
+  label: string;
+}
+const { label } = Astro.props;
+---
+
+<aside class="callout">
+  <p class="callout-label">{label}</p>
+  <div class="callout-body"><slot /></div>
+</aside>
+
+<style>
+  .callout {
+    margin-block: var(--space-6);
+    padding: var(--space-4) var(--space-5);
+    border-left: 3px solid var(--signal);
+    border-radius: 0 var(--radius-s) var(--radius-s) 0;
+    background: color-mix(in srgb, var(--signal) 7%, var(--surface));
+  }
+
+  .callout-label {
+    margin-bottom: var(--space-2);
+    color: var(--signal);
+    font-size: var(--text-sm);
+    font-weight: 700;
+  }
+
+  .callout-body :global(p + p) {
+    margin-top: var(--space-3);
+  }
+</style>

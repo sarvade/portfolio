@@ -22,8 +22,8 @@ const work = defineCollection({
     period: z.string().optional(),
     /** The large figure shown next to the entry in lists. */
     headline: z.object({ value: z.string(), label: z.string() }),
-    /** Up to three key figures shown at the top of the entry page. */
-    figures: z.array(z.object({ value: z.string(), label: z.string() })).max(3).default([]),
+    /** Up to four key figures shown at the top of the entry page. */
+    figures: z.array(z.object({ value: z.string(), label: z.string() })).max(4).default([]),
     /** Tools and practices, shown as a list on the entry page. */
     tags: z.array(z.string()).default([]),
     links: z
@@ -32,6 +32,8 @@ const work = defineCollection({
         demo: z.url().optional(),
       })
       .default({}),
+    /** Featured entries appear on the home page; the rest are on /work/. */
+    featured: z.boolean().default(false),
     /** Lower numbers sort first. */
     order: z.number().default(100),
     /** Drafts are visible with `npm run dev` but never published. */

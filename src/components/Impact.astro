@@ -1,0 +1,143 @@
+---
+import { impact } from '../data/profile';
+/*
+  Impact strip: six numbers from my work, each counted up once when it first
+  scrolls into view. The final values are in the HTML, so they show without JS
+  and with reduced motion.
+*/
+---
+
+<section class="impact" aria-labelledby="impact-title">
+  <div class="container">
+    <h2 id="impact-title" class="visually-hidden">Impact in numbers</h2>
+    <ul class="impact-grid">
+      {
+        impact.map((item) => (
+          <li class="impact-item">
+            <span
+              class="impact-value"
+              data-count={item.count}
+              data-prefix={item.prefix ?? ''}
+              data-suffix={item.suffix ?? ''}
+              data-decimals={item.count !== undefined && !Number.isInteger(item.count) ? 1 : 0}
+            >
+              {item.value}
+            </span>
+            <span class="impact-label">{item.label}</span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .impact {
+    border-top: 1px solid var(--rule);
+    background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+  }
+
+  .impact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .impact-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-6) var(--space-4) var(--space-6) 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .impact-item:nth-child(2n) {
+    padding-left: var(--space-4);
+    border-left: 1px solid var(--rule);
+  }
+
+  .impact-value {
+    color: var(--signal);
+    font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
+    font-weight: 750;
+    font-stretch: 125%;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums lining-nums;
+    white-space: nowrap;
+  }
+
+  .impact-label {
+    max-width: 26ch;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+
+  @media (min-width: 900px) {
+    .impact-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .impact-item,
+    .impact-item:nth-child(2n) {
+      padding: var(--space-7) var(--space-5);
+      border-left: 1px solid var(--rule);
+    }
+
+    .impact-item:nth-child(3n + 1) {
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .impact-item:nth-last-child(-n + 3) {
+      border-bottom: 0;
+    }
+  }
+
+  @media (max-width: 899px) {
+    .impact-item:nth-last-child(-n + 2) {
+      border-bottom: 0;
+    }
+  }
+</style>
+
+<script>
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const values = Array.from(document.querySelectorAll<HTMLElement>('.impact-value[data-count]'));
+
+  if (!reduce.matches && values.length && 'IntersectionObserver' in window) {
+    const run = (el: HTMLElement) => {
+      const target = Number(el.dataset.count);
+      const decimals = Number(el.dataset.decimals ?? 0);
+      const prefix = el.dataset.prefix ?? '';
+      const suffix = el.dataset.suffix ?? '';
+      const final = el.textContent;
+      const start = performance.now();
+      const duration = 1100;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = `${prefix}${(target * eased).toFixed(decimals)}${suffix}`;
+        if (t < 1) requestAnimationFrame(step);
+        else el.textContent = final;
+      };
+      requestAnimationFrame(step);
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            run(entry.target as HTMLElement);
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.6 },
+    );
+    values.forEach((el) => observer.observe(el));
+  }
+</script>

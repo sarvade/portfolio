@@ -1,0 +1,100 @@
+---
+title: Fixing cost before capacity on an API failing at peak
+summary: A high-traffic API was failing at peak and the obvious fix was a higher rate limit. I found the query had silently stopped using its index, cut rows scanned per call 40–80×, and only then raised the limit.
+org: TikTok
+order: 2
+featured: true
+headline:
+  value: '40–80×'
+  label: fewer rows scanned per API call
+figures:
+  - value: '8.24M'
+    label: rows scanned per call before the fix
+  - value: '40–80×'
+    label: fewer rows per call after
+  - value: '150 → 200'
+    label: QPS limit, raised with evidence
+  - value: '~70%'
+    label: success rate at peak, before
+tags:
+  - Apache Doris
+  - Query plans
+  - Prefix indexes
+  - Rate limiting
+  - Capacity planning
+  - Incident response
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Compare from '../../components/viz/Compare.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+A product-facing API was failing at peak traffic in one region. Its success rate had dropped to about 70%. Backend wanted the rate limit raised, which is the fix everyone reaches for first.
+
+It would have moved the incident somewhere worse. Every call was scanning 8.24 million rows in the OLAP cluster behind it, so more calls meant more load on a shared cluster, not a healthier API.
+
+<Callout label="The call">
+  Make each call cheaper before allowing more of them. I owned the query, so the cost was mine to fix.
+</Callout>
+
+## Diagnosis
+
+I read the query plans with the owner of the OLAP cluster, which runs Apache Doris. The query filtered on a long `IN` list. Past a certain number of keys, the engine stops using the prefix index to narrow the scan, and nothing errors when that happens. The query just reads far more data than it needs to.
+
+<Flow
+  title="Before: the index was silently skipped"
+  steps={[
+    { label: 'API request' },
+    { label: 'Long IN-list filter' },
+    { label: 'Scan-key cap exceeded', note: 'prefix index not used', tone: 'caution' },
+    { label: '8.24M rows per call', tone: 'caution' },
+  ]}
+/>
+
+<Flow
+  title="After: one-line hint"
+  steps={[
+    { label: 'API request' },
+    { label: 'Scan keys capped', note: 'one-line query hint', tone: 'signal' },
+    { label: 'Prefix index used' },
+    { label: '~0.1–0.2M rows per call' },
+  ]}
+/>
+
+## The fix
+
+A one-line hint capped the number of scan keys, so the engine used the index again. Rows scanned per call dropped by 40 to 80 times.
+
+<Compare
+  title="Rows scanned per API call"
+  rows={[
+    { label: 'Before', value: 8240000, display: '8.24M', tone: 'before' },
+    { label: 'After', value: 206000, display: '~0.1–0.2M', tone: 'after' },
+  ]}
+  caption="Linear scale. After the fix each call scans 40–80× fewer rows; the bar shows the upper end of that range."
+/>
+
+Only after that did I raise the limit, from 150 to 200 queries per second, with the before-and-after evidence attached to the change.
+
+<Compare
+  title="Rate limit, queries per second"
+  rows={[
+    { label: 'Before', value: 150, display: '150', tone: 'before' },
+    { label: 'After', value: 200, display: '200', tone: 'after' },
+  ]}
+  caption="Raised only once each call cost a fraction of what it did."
+/>
+
+## Three months later
+
+During an infrastructure incident, traffic failed over to a backup environment that had none of this tuning, and the same API hit its cap at about 250 QPS. A backend engineer asked for a quick patch.
+
+I said no, but I didn't stop at no. I gave him a decision rule: measure the real peak, set a threshold, and file the formal change only if traffic stays above it past the failback ETA. Nothing unreviewed went in during the incident.
+
+## Result
+
+The success rate recovered and the API has run under the new limit since. The approach became the team default for OLAP-backed list APIs, and I reused it to unblock a colleague's new interface that had failed scan testing days before its launch date.
+
+The change itself was small. That's the point: the expensive fix was the wrong one.

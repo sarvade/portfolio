@@ -1,7 +1,7 @@
 ---
 import type { PostEntry } from '../lib/content';
 import { url } from '../lib/url';
-import { formatDate, isoDate } from '../lib/format';
+import { formatDate, isoDate, readingTime } from '../lib/format';
 
 interface Props {
   posts: PostEntry[];
@@ -21,6 +21,8 @@ const Heading = headingLevel;
         <p class="post-desc">{post.data.description}</p>
         <p class="post-date">
           <time datetime={isoDate(post.data.pubDate)}>{formatDate(post.data.pubDate)}</time>
+          <span class="sep" aria-hidden="true">/</span>
+          {readingTime(post.body)}
           {post.data.draft && <span class="draft"> (draft, only visible in dev)</span>}
         </p>
       </li>
@@ -67,6 +69,11 @@ const Heading = headingLevel;
   .post-date {
     color: var(--text-muted);
     font-size: var(--text-sm);
+  }
+
+  .sep {
+    margin-inline: var(--space-2);
+    opacity: 0.6;
   }
 
   .draft {

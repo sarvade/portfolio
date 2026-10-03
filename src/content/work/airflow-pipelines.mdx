@@ -2,7 +2,7 @@
 title: Faster Airflow pipelines that are safe to rerun
 summary: I designed and operated production Airflow pipelines integrating vendor APIs and legacy systems into S3 and Teradata.
 org: Delta Air Lines
-order: 6
+order: 8
 headline:
   value: '65%'
   label: shorter ETL runtime, 4.5 hours down to 1.5
@@ -19,6 +19,9 @@ tags:
   - Reconciliation
 ---
 
+import Flow from '../../components/viz/Flow.astro';
+import Compare from '../../components/viz/Compare.astro';
+
 ## Context
 
 Data from vendor APIs and legacy systems had to land in S3 and Teradata.
@@ -29,6 +32,25 @@ Data from vendor APIs and legacy systems had to land in S3 and Teradata.
 - Made the DAGs idempotent, so rerunning a task gives the same result.
 - Added reconciliation checks to confirm the data that landed matches the source.
 
+<Flow
+  title="The pipeline"
+  steps={[
+    { label: 'Vendor APIs and legacy systems' },
+    { label: 'Airflow DAGs', note: 'idempotent, safe to rerun', tone: 'signal' },
+    { label: 'S3 and Teradata' },
+    { label: 'Reconciliation checks', note: 'landed vs source' },
+  ]}
+/>
+
 ## Result
+
+<Compare
+  title="ETL runtime, hours"
+  rows={[
+    { label: 'Before', value: 4.5, display: '4.5 h', tone: 'before' },
+    { label: 'After', value: 1.5, display: '1.5 h', tone: 'after' },
+  ]}
+  caption="Linear scale. 65% shorter, with accuracy held at 99.9%."
+/>
 
 ETL runtime dropped 65%, from 4.5 hours to 1.5, while accuracy held at 99.9%.

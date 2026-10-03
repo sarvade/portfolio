@@ -1,65 +1,131 @@
 ---
+import Icon from './Icon.astro';
 import { site } from '../data/profile';
 import { url } from '../lib/url';
+
+/*
+  The email address never appears as plain text in the HTML, the JSON-LD or the
+  JSON résumé. It is shown as "user [@ icon] domain", which reads naturally to a
+  person but doesn't match the patterns scrapers look for. The real address is
+  assembled in the browser only when someone clicks Copy or Write to me.
+*/
+const [user, domain] = site.email.split('@');
+const encoded = btoa([...site.email].reverse().join(''));
 ---
 
 <div class="contact">
-  <div class="email-row">
-    <a class="email" href={`mailto:${site.email}`}>{site.email}</a>
-    <button class="copy btn btn-quiet btn-small" type="button" data-copy={site.email}>Copy email</button>
-    <span class="copy-status visually-hidden" role="status" aria-live="polite"></span>
+  <div class="email-card" data-email-card data-e={encoded}>
+    <p class="email-display" data-email-display>
+      <span>{user}</span><Icon name="at" size={22} label="at" class="email-at" /><span>{domain}</span>
+    </p>
+    <div class="email-actions">
+      <button type="button" class="btn btn-primary btn-small" data-email="compose">
+        <Icon name="send" size={16} /> Write to me
+      </button>
+      <button type="button" class="btn btn-quiet btn-small" data-email="copy">
+        <Icon name="copy" size={16} /> <span data-copy-label>Copy email</span>
+      </button>
+    </div>
+    <p class="email-note">Written this way so spam bots can’t read it. The buttons put the real address together when you click.</p>
+    <span class="visually-hidden" role="status" aria-live="polite" data-email-status></span>
   </div>
 
   <ul class="contact-links">
-    <li><a href={site.links.linkedin}>LinkedIn</a></li>
-    <li><a href={site.links.github}>GitHub</a></li>
-    <li><a href={url(site.resume)}>Résumé (PDF)</a></li>
-    <li><a href={url('resume.json')}>Résumé as JSON</a></li>
+    <li>
+      <a href={site.links.linkedin} target="_blank" rel="noopener noreferrer">
+        <Icon name="brand-linkedin" size={20} /> LinkedIn<span class="visually-hidden"> (opens in a new tab)</span>
+      </a>
+    </li>
+    <li>
+      <a href={site.links.github} target="_blank" rel="noopener noreferrer">
+        <Icon name="brand-github" size={20} /> GitHub<span class="visually-hidden"> (opens in a new tab)</span>
+      </a>
+    </li>
+    <li>
+      <a href={url(site.resume)} target="_blank" rel="noopener">
+        <Icon name="file-text" size={20} /> Résumé (PDF)<span class="visually-hidden"> (opens in a new tab)</span>
+      </a>
+    </li>
   </ul>
   <p class="location">Based in {site.location}.</p>
 </div>
 
 <style>
-  .email-row {
+  .email-card {
+    display: grid;
+    gap: var(--space-4);
+    max-width: 36rem;
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+  }
+
+  .email-display {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-3) var(--space-5);
-  }
-
-  .email {
+    gap: 0.1em;
     color: var(--text);
-    font-size: clamp(1.5rem, 0.95rem + 2.9vw, 3rem);
+    font-size: clamp(1.25rem, 1rem + 1.1vw, 1.75rem);
     font-weight: 700;
-    font-stretch: 112%;
-    letter-spacing: -0.02em;
-    line-height: 1.1;
+    font-stretch: 110%;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
     overflow-wrap: anywhere;
-    text-decoration-color: var(--signal);
-    text-decoration-thickness: 2px;
-    text-underline-offset: 0.16em;
   }
 
-  .email:hover {
+  .email-display :global(.email-at) {
+    width: 0.95em;
+    height: 0.95em;
     color: var(--signal);
+    stroke-width: 2.4;
   }
 
-  .copy {
+  .email-display.revealed {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .email-actions {
     display: none;
+    flex-wrap: wrap;
+    gap: var(--space-3);
   }
 
-  :global(.js) .copy {
-    display: inline-flex;
+  :global(.js) .email-actions {
+    display: flex;
+  }
+
+  .email-note {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
   }
 
   .contact-links {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2) var(--space-6);
+    gap: var(--space-3);
     margin-top: var(--space-6);
     padding: 0;
     list-style: none;
+  }
+
+  .contact-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.75rem;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    color: var(--text);
     font-weight: 600;
+    text-decoration: none;
+  }
+
+  .contact-links a:hover {
+    border-color: var(--signal);
+    color: var(--signal);
   }
 
   .location {
@@ -70,22 +136,58 @@ import { url } from '../lib/url';
 </style>
 
 <script>
-  const button = document.querySelector<HTMLButtonElement>('.copy');
-  const status = document.querySelector<HTMLElement>('.copy-status');
+  const card = document.querySelector<HTMLElement>('[data-email-card]');
 
-  button?.addEventListener('click', async () => {
-    const text = button.dataset.copy ?? '';
-    try {
-      await navigator.clipboard.writeText(text);
-      button.textContent = 'Copied';
-      if (status) status.textContent = 'Email address copied to the clipboard.';
-    } catch {
-      button.textContent = 'Copy failed';
-      if (status) status.textContent = 'Copying is blocked in this browser. Select the address to copy it.';
-    }
-    window.setTimeout(() => {
-      button.textContent = 'Copy email';
-      if (status) status.textContent = '';
-    }, 2500);
-  });
+  if (card) {
+    const display = card.querySelector<HTMLElement>('[data-email-display]');
+    const status = card.querySelector<HTMLElement>('[data-email-status]');
+    const copyLabel = card.querySelector<HTMLElement>('[data-copy-label]');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    // Reverse of the build step: base64 decode, then un-reverse.
+    const address = () => Array.from(atob(card.dataset.e ?? '')).reverse().join('');
+
+    // A short "decrypting" scramble that settles into the real address.
+    const reveal = () => {
+      if (!display || display.classList.contains('revealed')) return;
+      const target = address();
+      display.classList.add('revealed');
+      if (reduce.matches) {
+        display.textContent = target;
+        return;
+      }
+      const glyphs = 'abcdefghijklmnopqrstuvwxyz0123456789._@';
+      const start = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / 650);
+        const settled = Math.floor(t * target.length);
+        let out = target.slice(0, settled);
+        for (let i = settled; i < target.length; i++) out += glyphs[Math.floor(Math.random() * glyphs.length)];
+        display.textContent = out;
+        if (t < 1) requestAnimationFrame(step);
+        else display.textContent = target;
+      };
+      requestAnimationFrame(step);
+    };
+
+    card.querySelector('[data-email="compose"]')?.addEventListener('click', () => {
+      reveal();
+      window.location.href = `mailto:${address()}`;
+    });
+
+    card.querySelector('[data-email="copy"]')?.addEventListener('click', async () => {
+      reveal();
+      try {
+        await navigator.clipboard.writeText(address());
+        if (copyLabel) copyLabel.textContent = 'Copied';
+        if (status) status.textContent = 'Email address copied to the clipboard.';
+      } catch {
+        if (copyLabel) copyLabel.textContent = 'Select it above';
+        if (status) status.textContent = 'Copying is blocked in this browser. The address is now shown; select it to copy.';
+      }
+      window.setTimeout(() => {
+        if (copyLabel) copyLabel.textContent = 'Copy email';
+        if (status) status.textContent = '';
+      }, 2500);
+    });
+  }
 </script>

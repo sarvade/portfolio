@@ -415,6 +415,14 @@ a:hover {
   color: var(--text-muted);
 }
 
+.prose a.is-external::after {
+  content: '↗';
+  display: inline-block;
+  margin-left: 0.15em;
+  font-size: 0.8em;
+  text-decoration: none;
+}
+
 .prose blockquote {
   padding-left: var(--space-4);
   border-left: 3px solid var(--rule-strong);

@@ -7,8 +7,8 @@ import { absoluteUrl } from '../lib/url';
 export async function GET(context: APIContext) {
   const posts = await getPosts();
   return rss({
-    title: `${site.name}: writing`,
-    description: 'Notes on data engineering by Sai S Sarvade.',
+    title: `${site.name}: blog`,
+    description: 'Notes on data engineering and AI by Sai S Sarvade.',
     site: absoluteUrl('', context.site),
     items: posts.map((post) => ({
       title: post.data.title,

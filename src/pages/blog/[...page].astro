@@ -20,11 +20,11 @@ interface Props {
 const { posts } = Astro.props;
 ---
 
-<BaseLayout title="Writing" description="Notes on data engineering by Sai S Sarvade.">
+<BaseLayout title="Blog" description="Notes on data engineering and AI by Sai S Sarvade: validation, reruns, query plans, and where LLMs help.">
   <div class="container blog-index">
     <header>
-      <h1>Writing</h1>
-      <p>Notes on data engineering: pipelines, metrics, and data quality.</p>
+      <h1>Blog</h1>
+      <p>Notes from building pipelines: validation, reruns, query plans, and where AI actually helps. New posts roughly once a week.</p>
     </header>
     <PostList posts={posts} headingLevel="h2" />
   </div>

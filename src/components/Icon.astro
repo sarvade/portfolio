@@ -1,0 +1,29 @@
+---
+/*
+  Inline SVG icon from src/icons/ (Tabler Icons, MIT; see src/icons/LICENSE-tabler.txt).
+  Decorative by default (aria-hidden). Pass `label` when the icon is the only content of a control.
+*/
+interface Props {
+  name: string;
+  size?: number;
+  label?: string;
+  class?: string;
+}
+
+const { name, size = 18, label, class: className } = Astro.props;
+const icons = import.meta.glob<string>('../icons/*.svg', { query: '?raw', import: 'default', eager: true });
+const raw = icons[`../icons/${name}.svg`];
+if (!raw) throw new Error(`Unknown icon "${name}"`);
+
+const svg = raw
+  .replace(/<path stroke="none" d="M0 0h24v24H0z" fill="none"\s*\/>/, '')
+  .replace(/\s(width|height|class)="[^"]*"/g, '')
+  .replace(
+    '<svg',
+    `<svg width="${size}" height="${size}" class="icon${className ? ` ${className}` : ''}" ${
+      label ? `role="img" aria-label="${label}"` : 'aria-hidden="true" focusable="false"'
+    }`,
+  );
+---
+
+<Fragment set:html={svg} />

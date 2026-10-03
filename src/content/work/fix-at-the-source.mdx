@@ -1,0 +1,84 @@
+---
+title: Fixing a failure class at the source, not the symptom
+summary: A creator-facing feature vanished during a P1. I restored it the same day, then traced two disagreeing APIs to one source table built on a false assumption, and fixed it there.
+org: TikTok
+order: 4
+featured: true
+headline:
+  value: '67,565'
+  label: bad rows my validation caught in my own first fix
+figures:
+  - value: 'Same day'
+    label: feature restored during the P1
+  - value: '67,565'
+    label: rows caught by validation before shipping
+  - value: '0.0000%'
+    label: difference after the corrected fix
+  - value: '2,993'
+    label: items recovered in testing
+tags:
+  - Root cause analysis
+  - Anti-joins
+  - Cumulative tables
+  - Validation
+  - Incident response
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+The feature marks a creator's best videos so they can learn what works. It disappeared for creators in one region, which made it a P1. Later the list of videos and the badge on each video started to disagree, and nothing makes a product look less trustworthy than contradicting itself on a creator's own dashboard.
+
+I was the named data owner for the APIs behind it, serving a region I can't query directly.
+
+## Restore first
+
+The cause of the outage was a filter that only looked at a single day's partition, so anyone whose latest partition arrived late simply dropped out. I shipped the smallest reversible fix the same day. Then I caught and fixed a duplicate-row regression my own fix had introduced, and wrote down the risks that remained instead of hiding them.
+
+## Then find the real cause
+
+When the list and the badge disagreed, I proved the mechanism first. Then, instead of bringing code, I brought the PM a product decision: should a video keep the badge once it earns it, or be re-evaluated every day? Her answer turned what I had been calling a design trade-off into a bug, and I said so.
+
+Both APIs read from one source table, and that table was built on a false assumption: that the quality flag, once set, never flips back. Fixing it there fixes both APIs at once.
+
+<Flow
+  title="Where the fix belongs"
+  steps={[
+    { label: 'Upstream quality flag', note: 'can flip back', tone: 'caution' },
+    { label: 'Shared source table', note: 'the fix lives here', tone: 'signal' },
+    { label: 'List API and badge API', note: 'both read this table' },
+  ]}
+/>
+
+<Callout label="The call">
+  Patch the symptom in two APIs and they drift again next quarter. Fix the assumption in the one table they share and the whole class of failure goes away.
+</Callout>
+
+## Validation caught my own bug
+
+My first version used an aggregation to build the persistent pool. Validation showed it corrupting 67,565 rows. I replaced the aggregation with an anti-join and validated again, this time to zero difference.
+
+The pattern, illustrative rather than production code:
+
+```sql
+-- Cumulative pool: keep everything already tagged, add only new items
+insert overwrite table quality_pool partition (dt = '{{ ds }}')
+select item_id, first_tagged_dt
+from   quality_pool
+where  dt = '{{ yesterday_ds }}'
+union all
+select f.item_id, '{{ ds }}' as first_tagged_dt
+from   daily_flags f
+left join quality_pool p
+       on  p.item_id = f.item_id
+       and p.dt = '{{ yesterday_ds }}'
+where  f.dt = '{{ ds }}'
+  and  f.is_quality = 1
+  and  p.item_id is null;  -- anti-join: only items not already in the pool
+```
+
+## Result
+
+Creators had the feature back within the day. The fix at the source validated to 0.0000% difference and recovered 2,993 items in testing, and I aligned product, my tech lead, backend and the OLAP team on a written rollout plan, including a heads-up that the badge's behavior was changing. Once it rolls out, the failure class is gone instead of patched.

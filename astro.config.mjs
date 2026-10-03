@@ -19,6 +19,17 @@ export default defineConfig({
     format: 'directory',
   },
   integrations: [mdx(), sitemap()],
+  vite: {
+    build: {
+      rollupOptions: {
+        // MDX content emits a harmless "module level directive" notice per file; keep CI logs readable.
+        onwarn(warning, warn) {
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;
+          warn(warning);
+        },
+      },
+    },
+  },
   markdown: {
     shikiConfig: {
       themes: { light: 'github-light-default', dark: 'github-dark-default' },

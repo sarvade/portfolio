@@ -1,0 +1,98 @@
+---
+title: Moving 18 revenue metrics to a new attribution model in three regions
+summary: I led data engineering delivery for three of the four tables in a migration that changed how revenue is attributed, with 12 months of history rebuilt in every region and no inconsistent page at launch.
+org: TikTok
+order: 1
+featured: true
+headline:
+  value: '18'
+  label: metrics migrated, with 12 months rebuilt in each of 3 regions
+figures:
+  - value: '18'
+    label: new metric definitions
+  - value: '3'
+    label: regions on one codebase
+  - value: '12 months'
+    label: of history rebuilt per region
+  - value: '3'
+    label: defects caught before launch
+tags:
+  - Multi-step ETL
+  - Canonical datasets
+  - Metric definitions
+  - Row-level validation
+  - Backfills
+  - Documentation
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+The analytics products I work on show sellers how much revenue their content drives, and sellers use those numbers to decide where to spend. The business was moving to a new attribution model, one that separates a direct sale from the influence content had earlier in the buyer's journey. On top of that, different pages had been showing different totals for the same thing.
+
+If the migration went wrong, sellers in three regions would be making decisions on wrong numbers, across a full year of history.
+
+## What I owned
+
+Four core tables had to move. I was assigned one. The team was stretched and the integration date had no buffer, so I took three of the four, including the logic they shared.
+
+## Decisions that mattered
+
+**One codebase for every region.** Each region had its own pipeline, and that is exactly how one metric ends up computed two different ways. I merged them so a metric can only be defined once.
+
+<Flow
+  title="Before: one pipeline per region"
+  steps={[
+    { label: 'Raw event logs' },
+    { label: 'Region-specific logic', tone: 'muted' },
+    { label: 'Region-specific metrics', note: 'same metric, two definitions', tone: 'caution' },
+  ]}
+/>
+
+<Flow
+  title="After: one definition, every region"
+  steps={[
+    { label: 'Raw event logs' },
+    { label: 'Shared logic', note: 'one definition per metric', tone: 'signal' },
+    { label: 'Region parameters' },
+    { label: 'Same metrics everywhere' },
+  ]}
+/>
+
+**Registered the metrics before the data existed.** I pre-registered all 18 metrics in the metric registry before any data existed. Backend engineers could build their APIs against the definitions while I built the pipelines underneath, so the two streams of work ran in parallel instead of in sequence. That's how the date held.
+
+**Kept validation, even with no buffer.** Every region got row-level diffs against the old output and a full 12-month backfill before sign-off.
+
+<Callout label="The call">
+  Cutting validation was the obvious way to make the date. I kept row-level diffs and full backfills for every region, and that discipline is what made the bugs below cheap to find instead of expensive to explain.
+</Callout>
+
+<Flow
+  title="Gates every region passed before launch"
+  steps={[
+    { label: 'New pipeline output' },
+    { label: 'Row-level diff', note: 'per region, against the old tables', tone: 'signal' },
+    { label: '12-month backfill', note: 'per region' },
+    { label: 'Sign-off' },
+  ]}
+/>
+
+## What validation caught before launch
+
+- A revenue discrepancy a reviewer raised. It traced cleanly to a single filter applied on the wrong attribution path.
+- A join that fanned out and quietly multiplied totals.
+- A distinct count computed at the wrong grain.
+
+All three were fixed before launch.
+
+## Running the backfills
+
+The backfills ran for days. I measured throughput as they went, so the program had real ETAs to plan around instead of guesses.
+
+## Result
+
+Every page in all three regions reports revenue on the new model, with 12 months of consistent history behind it, and the complaints about pages disagreeing with each other stopped.
+
+**Scope, plainly:** I led the data engineering delivery for three of the four tables. I didn't define the attribution model itself.

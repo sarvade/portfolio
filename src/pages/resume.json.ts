@@ -1,7 +1,7 @@
 /*
   The résumé as data, in the JSON Resume format (https://jsonresume.org/schema).
   Generated from src/data/profile.ts at build time, so it never drifts from the site.
-  Served at /portfolio/resume.json. Contains no phone number.
+  Served at /portfolio/resume.json. Contains no phone number and no email address (anti-scraping).
 */
 import type { APIContext } from 'astro';
 import { about, education, experience, site, skills } from '../data/profile';
@@ -26,7 +26,6 @@ export function GET(context: APIContext) {
     basics: {
       name: site.name,
       label: site.role,
-      email: site.email,
       url: absoluteUrl('', context.site),
       summary: about.paragraphs[0],
       location: { city: 'San Jose', region: 'CA', countryCode: 'US' },

@@ -6,6 +6,7 @@ import { url } from '../lib/url';
 
 const items = await Promise.all(
   principles.map(async (p) => {
+    if (!p.proof) return { ...p, proofTitle: undefined };
     const entry = await getEntry('work', p.proof);
     if (!entry) throw new Error(`Principle "${p.title}" links to missing case study "${p.proof}"`);
     return { ...p, proofTitle: entry.data.title };
@@ -19,12 +20,16 @@ const items = await Promise.all(
       <li class="principle">
         <h3>{p.title}</h3>
         <p>{p.body}</p>
-        <div class="snippet">
-          <Code code={p.code} lang={p.lang} themes={{ light: 'github-light-default', dark: 'github-dark-default' }} defaultColor={false} />
-        </div>
-        <a class="proof" href={url(`work/${p.proof}/`)}>
-          Case study: {p.proofTitle}
-        </a>
+        {p.code && p.lang && (
+          <div class="snippet">
+            <Code code={p.code} lang={p.lang} themes={{ light: 'github-light-default', dark: 'github-dark-default' }} defaultColor={false} />
+          </div>
+        )}
+        {p.proof && (
+          <a class="proof" href={url(`work/${p.proof}/`)}>
+            Case study: {p.proofTitle}
+          </a>
+        )}
       </li>
     ))
   }

@@ -1,0 +1,68 @@
+---
+title: 'Miles in minutes: modernizing an elite loyalty platform on AWS'
+summary: Elite travelers waited until the next morning to see their miles. I architected the platform on AWS and moved batch jobs to streaming, so miles show up within minutes of landing.
+org: Delta Air Lines
+order: 5
+featured: true
+headline:
+  value: '1.6M+'
+  label: elite travelers see miles within minutes, not the next morning
+figures:
+  - value: '1.6M+'
+    label: elite travelers
+  - value: '750+'
+    label: flights a day
+  - value: '45%'
+    label: better query performance
+  - value: '99.9%'
+    label: accuracy against source
+tags:
+  - AWS
+  - Apache Spark
+  - Apache Hive
+  - Apache Iceberg
+  - Amazon S3
+  - Apache Kafka
+  - Apache Flume
+  - ClickHouse
+  - IAM and encryption
+  - CI/CD
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+For a status-chasing frequent flyer, the miles balance isn't a feature. It is the product. The loyalty platform for elite travelers ran on Informatica batch jobs, so a traveler who landed couldn't see their miles until the next morning.
+
+## What I built
+
+I architected the platform on AWS, with Spark and Hive over Iceberg tables on S3. I built the ingestion with Kafka, Flume and ClickHouse, landing vendor API data at 99.9% accuracy against source, and converted the existing batch jobs to streaming for the daily flight volume.
+
+<Flow
+  title="Before: nightly batch"
+  steps={[
+    { label: 'Flight lands' },
+    { label: 'Nightly Informatica batch', tone: 'muted' },
+    { label: 'Miles visible next morning', tone: 'caution' },
+  ]}
+/>
+
+<Flow
+  title="After: streaming"
+  steps={[
+    { label: 'Flight lands' },
+    { label: 'Streaming ingestion', note: 'Kafka, Flume', tone: 'signal' },
+    { label: 'Spark and Hive', note: 'over Iceberg tables on S3' },
+    { label: 'Miles visible within minutes' },
+  ]}
+/>
+
+<Callout label="Ownership">
+  This is loyalty data for identified travelers, so the security posture wasn't someone else's job. I owned the encryption, IAM and CI/CD controls the platform ran on.
+</Callout>
+
+## Result
+
+More than 1.6 million elite travelers went from seeing their miles the next morning to seeing them within minutes of landing, across 750+ daily flights, and query performance improved 45%.

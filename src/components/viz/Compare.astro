@@ -1,0 +1,147 @@
+---
+/*
+  Before/after comparison as horizontal bars, drawn to one scale.
+  - scale 'linear' (default): bar length is proportional to value.
+  - scale 'log': for gaps of 10x or more; the caption should say it is a log scale.
+  Values are labeled directly, so the chart reads without hover and doubles as its own table.
+*/
+export interface Row {
+  label: string;
+  value: number;
+  display: string;
+  tone?: 'before' | 'after';
+}
+
+interface Props {
+  title: string;
+  rows: Row[];
+  scale?: 'linear' | 'log';
+  caption?: string;
+}
+
+const { title, rows, scale = 'linear', caption } = Astro.props;
+const max = Math.max(...rows.map((r) => r.value));
+const min = Math.min(...rows.map((r) => r.value));
+// Log axis starts one decade below the smallest value so the smallest bar stays visible.
+const lo = scale === 'log' ? Math.pow(10, Math.floor(Math.log10(min)) - 1) : 0;
+const width = (v: number) => {
+  const pct =
+    scale === 'log' ? ((Math.log10(v) - Math.log10(lo)) / (Math.log10(max) - Math.log10(lo))) * 100 : (v / max) * 100;
+  return Math.max(2, Math.min(100, pct)).toFixed(1);
+};
+---
+
+<figure class="compare">
+  <p class="compare-title">{title}</p>
+  <table>
+    <caption class="visually-hidden">{title}</caption>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr class:list={[`tone-${row.tone ?? 'after'}`]}>
+            <th scope="row">{row.label}</th>
+            <td class="bar-cell">
+              <span class="bar" style={`--w: ${width(row.value)}%`} />
+            </td>
+            <td class="value">{row.display}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .compare {
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+  }
+
+  .compare-title {
+    margin-bottom: var(--space-4);
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 var(--space-3);
+    margin-block: calc(-1 * var(--space-3));
+  }
+
+  th {
+    width: 7.5rem;
+    padding-right: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  .bar-cell {
+    padding: 0;
+    vertical-align: middle;
+    /* recessive baseline */
+    background: linear-gradient(var(--rule), var(--rule)) left center / 100% 1px no-repeat;
+  }
+
+  .bar {
+    display: block;
+    width: var(--w);
+    height: 14px;
+    border-radius: 0 4px 4px 0;
+    background: var(--signal);
+  }
+
+  .tone-before .bar {
+    background: var(--rule-strong);
+  }
+
+  .value {
+    width: 1%;
+    padding-left: var(--space-4);
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bar {
+      animation: grow 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      transform-origin: left center;
+    }
+  }
+
+  @keyframes grow {
+    from {
+      transform: scaleX(0);
+    }
+  }
+
+  @media (max-width: 479px) {
+    th {
+      width: 5.5rem;
+      padding-right: var(--space-3);
+    }
+
+    .value {
+      padding-left: var(--space-3);
+    }
+  }
+</style>

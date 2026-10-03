@@ -84,22 +84,23 @@ export const experience: Job[] = [
     context: 'Self-serve analytics products used by 15M+ people across 19 countries.',
     highlights: [
       {
-        text: 'Own the multi-step ETL that turns raw event logs into the canonical datasets the company reports on. Shipped 18 new metric definitions with 12 months of rebuilt history, documented so every market reads them the same way.',
-        work: 'canonical-metrics',
+        text: 'Led data engineering delivery for 3 of 4 tables in a three-region attribution migration: merged regional pipelines into one codebase, shipped 18 metrics with 12 months of rebuilt history, and caught a revenue discrepancy, a join fan-out and a wrong-grain count before launch.',
+        work: 'attribution-migration',
       },
       {
-        text: 'Set data integrity standards and delivery SLAs at 20 TB a day, then built the tooling that enforces them: automated validation on every job, freshness and quality checks, and alerts before a stakeholder opens a stale dashboard. The team adopted the standard, and I deployed it across 5 regions.',
-        work: 'data-integrity',
+        text: 'Own the multi-step ETL from raw event logs to the canonical datasets the company reports on, at 20 TB a day, and set the data integrity standards and delivery SLAs the team adopted.',
       },
       {
-        text: 'Caught a revenue calculation error during validation that would have reached every user dashboard at launch, and still shipped on the committed date.',
+        text: 'Cut rows scanned per call 40–80× on a high-traffic API by fixing an index the OLAP engine had silently stopped using, then raised its rate limit from 150 to 200 QPS with evidence.',
+        work: 'olap-api-cost',
       },
       {
-        text: 'Diagnosed a stalled ranking feature: the constraint was the access pattern, not the query. Moved the computation upstream into Flink over a 1.5B+ record stream, cutting query time and compute cost by orders of magnitude.',
-        work: 'flink-upstream',
+        text: 'Diagnosed a stalled ranking feature others were fixing by tuning the query. Moved the computation upstream into Flink over a 1.5B+ record stream, cutting query time and compute cost by orders of magnitude.',
+        work: 'realtime-rankings',
       },
       {
-        text: 'Build self-serve data products so analysts and business teams don’t queue behind a data engineer, and turn ambiguous questions into data models and technical requirements.',
+        text: 'Restored a creator-facing feature the same day during a P1, then fixed the root cause in the shared source table; validation caught 67,565 bad rows in my own first fix before it shipped.',
+        work: 'fix-at-the-source',
       },
       {
         text: 'Built the feature and evaluation datasets and the serving layer for a production ML model. Mentor junior engineers on modeling and code review.',
@@ -114,6 +115,10 @@ export const experience: Job[] = [
     start: 'Aug 2021',
     end: 'May 2025',
     highlights: [
+      {
+        text: 'Architected the elite loyalty platform on AWS (Spark and Hive over Iceberg on S3) and moved batch jobs to streaming: 1.6M+ elite travelers see miles within minutes of landing instead of the next morning, with 45% better query performance.',
+        work: 'loyalty-platform',
+      },
       {
         text: 'Led the migration of 50+ Informatica workflows to AWS Glue (PySpark) and Lambda with GitHub-based CI/CD, cutting licensing costs 65%, about $850K a year.',
         work: 'informatica-to-glue',
@@ -130,38 +135,51 @@ export const experience: Job[] = [
         text: 'Modeled the loyalty domain in Teradata for 500K+ customers and built the segmentation reporting and dashboards that marketing and operations ran campaigns from.',
       },
       {
-        text: 'Built a serverless S3 data lake: moved 15 TB with AWS DMS and cataloged it in Glue Catalog and Lake Formation with the access controls GDPR and CCPA require.',
+        text: 'Built a serverless S3 data lake: moved 15 TB with AWS DMS and cataloged it in Glue Catalog and Lake Formation with the access controls GDPR and CCPA require. Owned encryption, IAM and CI/CD for the loyalty platform.',
       },
     ],
   },
 ];
 
+/** The impact strip under the hero. `count` is the number animated on first view (optional). */
+export const impact = [
+  { value: '15M+', count: 15, prefix: '', suffix: 'M+', label: 'people use the analytics products I build for' },
+  { value: '20 TB', count: 20, prefix: '', suffix: ' TB', label: 'of data processed a day' },
+  { value: '1.5B+', count: 1.5, prefix: '', suffix: 'B+', label: 'events ranked in a real-time Flink job' },
+  { value: '40–80×', label: 'fewer rows scanned per call after an OLAP index fix' },
+  { value: '1.6M+', count: 1.6, prefix: '', suffix: 'M+', label: 'elite travelers on a loyalty platform I architected' },
+  { value: '~$850K', count: 850, prefix: '~$', suffix: 'K', label: 'a year saved by retiring legacy ETL licensing' },
+];
+
 export type Principle = {
   title: string;
   body: string;
-  /** Case study that shows this in practice. */
-  proof: string;
-  lang: 'sql' | 'yaml' | 'python';
+  /** Case study that shows this in practice (optional). */
+  proof?: string;
+  lang?: 'sql' | 'yaml' | 'python';
   /** Illustrative pattern only. Never paste production code or internal names here. */
-  code: string;
+  code?: string;
 };
 
-/** The "Approach" section: habits backed by work on the résumé, each with a small illustrative pattern. */
+/** The "Approach" section: habits backed by real work, some with a small illustrative pattern. */
 export const principles: Principle[] = [
   {
     title: 'Validate before anyone sees it',
-    body: 'Freshness and quality checks run on every job, and a failure raises an alert before a stakeholder opens the dashboard. Validation is also how I caught a revenue calculation error before a launch, and the launch still shipped on time.',
-    proof: 'data-integrity',
+    body: 'Totals can match while rows are wrong. I diff old and new outputs row by row, per region, before anything ships. That habit caught a revenue discrepancy, a join fan-out and a wrong-grain count before a launch, and it caught 67,565 bad rows in my own first fix.',
+    proof: 'attribution-migration',
     lang: 'sql',
-    code: `-- Gate the publish: any row returned = fail
-select count(*) as row_count,
-       count_if(revenue < 0) as negative_revenue,
-       max(event_ts) as latest_event
-from   staging.daily_orders
-where  dt = '{{ ds }}'
-having count(*) = 0
-    or count_if(revenue < 0) > 0
-    or max(event_ts) < date '{{ ds }}';`,
+    code: `-- Row-level diff: every key lands in exactly one bucket
+select case
+         when o.id is null then 'only_in_new'
+         when n.id is null then 'only_in_old'
+         when abs(o.revenue - n.revenue) > 0.005
+           then 'value_changed'
+         else 'match'
+       end      as bucket,
+       count(*) as rows
+from      old_metrics o
+full join new_metrics n on o.id = n.id
+group by 1;`,
   },
   {
     title: 'Make every rerun safe',
@@ -178,9 +196,14 @@ from   staging.orders
 where  dt = '{{ ds }}';`,
   },
   {
+    title: 'Fix cost before buying capacity',
+    body: 'When an API is failing, raising its limit is the reflex. I read the query plan first. An index the engine had silently stopped using was making every call scan 8.24M rows; fixing it cut that 40–80×, and only then did the limit go up.',
+    proof: 'olap-api-cost',
+  },
+  {
     title: 'Fix the access pattern, not just the query',
     body: 'When data is read the wrong way, query tuning hits a ceiling. Moving a ranking feature’s computation upstream into Flink, so the work happens as events arrive, cut query time and compute cost by orders of magnitude.',
-    proof: 'flink-upstream',
+    proof: 'realtime-rankings',
     lang: 'sql',
     code: `-- Flink SQL: aggregate as events arrive
 insert into item_scores
@@ -195,8 +218,8 @@ group by item_id, window_end;`,
   },
   {
     title: 'One definition per metric',
-    body: 'A metric should mean one thing everywhere. I shipped 18 new definitions with documentation and 12 months of rebuilt history, so teams in 19 markets read the same number the same way.',
-    proof: 'canonical-metrics',
+    body: 'A metric should mean one thing everywhere. So no metric could be computed two ways by region, I merged the regional pipelines into one codebase and shipped 18 definitions with documentation and 12 months of rebuilt history.',
+    proof: 'attribution-migration',
     lang: 'yaml',
     code: `# One definition, reused everywhere
 metrics:
@@ -209,20 +232,29 @@ metrics:
     type_params:
       measure: active_user_count`,
   },
+  {
+    title: 'Return a decision, not a question',
+    body: 'Ambiguous asks tend to turn into a month of “looking into it.” I split them into what is actually tractable and what is blocked, and why, then answer with a recommendation. One request split cleanly into a part that was tractable and a part policy ruled out, and the PM re-scoped the same day. The same habit avoided two builds nobody needed.',
+  },
+  {
+    title: 'Say what the data can’t answer',
+    body: 'When another team needed numbers for an investigation, I scoped what my tables could honestly support before quoting anything, delivered aggregates instead of individual records, flagged that their own figure used a different denominator, and pointed out broken arithmetic in an AI-generated summary they had been handed. Wrong numbers point an investigation the wrong way.',
+  },
 ];
 
 export type Skill = {
   name: string;
-  /** Slug of a case study where the résumé shows this skill in use. */
+  /** Slug of a case study that shows this skill in use. */
   work?: string;
 };
 
-export type SkillGroup = { group: string; items: Skill[] };
+export type SkillGroup = { group: string; short: string; items: Skill[] };
 
-/** Same six groups as the résumé. Only link a skill to a case study the résumé ties it to. */
+/** Skill groups (filters) and skills. Only link a skill to a case study that shows it. */
 export const skills: SkillGroup[] = [
   {
     group: 'Languages',
+    short: 'Languages',
     items: [
       { name: 'Python (pandas, PySpark)', work: 'informatica-to-glue' },
       { name: 'SQL' },
@@ -232,36 +264,41 @@ export const skills: SkillGroup[] = [
   },
   {
     group: 'Transformation and modeling',
+    short: 'Modeling',
     items: [
       { name: 'dbt' },
-      { name: 'Multi-step ETL', work: 'canonical-metrics' },
-      { name: 'Canonical datasets', work: 'canonical-metrics' },
+      { name: 'Multi-step ETL', work: 'attribution-migration' },
+      { name: 'Canonical datasets', work: 'attribution-migration' },
       { name: 'Dimensional modeling' },
       { name: 'Semantic and metrics layers' },
       { name: 'Schema design' },
     ],
   },
   {
-    group: 'Pipelines and orchestration',
+    group: 'Pipelines and streaming',
+    short: 'Pipelines and streaming',
     items: [
-      { name: 'Airflow', work: 'airflow-pipelines' },
-      { name: 'Spark' },
-      { name: 'Flink', work: 'flink-upstream' },
-      { name: 'Kafka' },
-      { name: 'Kinesis', work: 'event-driven-ingestion' },
-      { name: 'Hive' },
+      { name: 'Apache Flink', work: 'realtime-rankings' },
+      { name: 'Apache Spark', work: 'loyalty-platform' },
+      { name: 'Apache Kafka', work: 'loyalty-platform' },
+      { name: 'Amazon Kinesis', work: 'event-driven-ingestion' },
+      { name: 'Apache Airflow', work: 'airflow-pipelines' },
+      { name: 'Apache Hive', work: 'loyalty-platform' },
+      { name: 'Apache Flume', work: 'loyalty-platform' },
       { name: 'Trino/Presto' },
-      { name: 'GitHub version control' },
+      { name: 'AWS Glue and Lambda', work: 'informatica-to-glue' },
       { name: 'CI/CD', work: 'informatica-to-glue' },
     ],
   },
   {
     group: 'Warehouse and storage',
+    short: 'Storage and OLAP',
     items: [
+      { name: 'Apache Iceberg on S3', work: 'loyalty-platform' },
+      { name: 'Apache Doris', work: 'olap-api-cost' },
+      { name: 'ClickHouse', work: 'loyalty-platform' },
       { name: 'Snowflake' },
       { name: 'BigQuery' },
-      { name: 'Apache Iceberg on S3' },
-      { name: 'ClickHouse' },
       { name: 'Teradata', work: 'airflow-pipelines' },
       { name: 'PostgreSQL' },
       { name: 'MySQL' },
@@ -269,26 +306,30 @@ export const skills: SkillGroup[] = [
   },
   {
     group: 'Reporting and self-serve',
+    short: 'Reporting',
     items: [
       { name: 'Hex' },
       { name: 'Tableau' },
       { name: 'Power BI' },
       { name: 'Streamlit' },
-      { name: 'Dashboards' },
-      { name: 'Metric definitions', work: 'canonical-metrics' },
+      { name: 'Metric definitions', work: 'attribution-migration' },
       { name: 'Self-serve data products' },
     ],
   },
   {
     group: 'Integrity and reliability',
+    short: 'Data quality',
     items: [
-      { name: 'Data SLAs', work: 'data-integrity' },
-      { name: 'Automated validation', work: 'data-integrity' },
-      { name: 'Freshness monitoring', work: 'data-integrity' },
-      { name: 'Alerting', work: 'data-integrity' },
+      { name: 'Row-level validation', work: 'attribution-migration' },
+      { name: 'Backfills', work: 'attribution-migration' },
+      { name: 'Idempotent pipelines', work: 'airflow-pipelines' },
       { name: 'Reconciliation', work: 'airflow-pipelines' },
+      { name: 'Root cause analysis', work: 'fix-at-the-source' },
+      { name: 'Query plans and indexing', work: 'olap-api-cost' },
+      { name: 'Data SLAs' },
+      { name: 'Freshness monitoring' },
       { name: 'Lineage' },
-      { name: 'Documentation', work: 'canonical-metrics' },
+      { name: 'Documentation', work: 'attribution-migration' },
     ],
   },
 ];
@@ -296,7 +337,7 @@ export const skills: SkillGroup[] = [
 export const about = {
   paragraphs: [
     'Most of my work is making sure the numbers are right: the canonical datasets a company reports on, the metric definitions people decide with, and the checks that keep both correct. I partner with product, analytics, and research teams to define metrics, set data standards, and build self-serve data products.',
-    'I built the data integrity tooling my team now runs on without being asked, because waiting for permission would have meant shipping wrong numbers for another quarter.',
+    'The thing I’m known for is finding the bugs where the query runs fine and the meaning is wrong.',
     'I came to data engineering from aerospace engineering. My graduate work at Rice was exploratory analysis and anomaly detection on large scientific datasets in Python.',
   ],
 };

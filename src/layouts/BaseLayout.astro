@@ -47,7 +47,7 @@ const consoleNote = `console.info(${JSON.stringify(
     <link rel="icon" href={url('favicon-32.png')} type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href={url('apple-touch-icon.png')} />
     <link rel="sitemap" href={url('sitemap-index.xml')} />
-    {hasPosts && <link rel="alternate" type="application/rss+xml" title={`${site.name}: writing`} href={url('rss.xml')} />}
+    {hasPosts && <link rel="alternate" type="application/rss+xml" title={`${site.name}: blog`} href={url('rss.xml')} />}
 
     <meta name="theme-color" content="#0b1a2b" />
 
@@ -96,6 +96,32 @@ const consoleNote = `console.info(${JSON.stringify(
     <PageMotion />
     <CustomCursor />
     <script is:inline set:html={consoleNote} />
+    <script is:inline>
+      // Links that leave the site (and files like the résumé PDF) open in a new tab,
+      // so the portfolio stays open in the original one.
+      (function () {
+        var links = document.querySelectorAll('a[href]');
+        for (var i = 0; i < links.length; i++) {
+          var a = links[i];
+          var href = a.getAttribute('href') || '';
+          if (/^(mailto:|tel:|#)/i.test(href)) continue;
+          var u;
+          try { u = new URL(a.href, location.href); } catch (e) { continue; }
+          var external = u.origin !== location.origin;
+          var file = /\.(pdf|json|xml)$/i.test(u.pathname);
+          if (!external && !file) continue;
+          a.target = '_blank';
+          if (!/noopener/.test(a.rel)) a.rel = (a.rel + ' noopener noreferrer').trim();
+          if (!a.querySelector('.visually-hidden')) {
+            var hint = document.createElement('span');
+            hint.className = 'visually-hidden';
+            hint.textContent = ' (opens in a new tab)';
+            a.appendChild(hint);
+          }
+          a.classList.add('is-external');
+        }
+      })();
+    </script>
   </body>
 </html>
 

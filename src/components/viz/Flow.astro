@@ -1,0 +1,168 @@
+---
+/*
+  Architecture flow: a left-to-right chain of stages that stacks top-to-bottom on
+  phones. Plain HTML (an ordered list), so it is readable without CSS or JS.
+  tone: 'signal' highlights a stage, 'caution' marks a problem, 'muted' a legacy stage.
+*/
+export interface Step {
+  label: string;
+  note?: string;
+  tone?: 'default' | 'signal' | 'caution' | 'muted';
+}
+
+interface Props {
+  steps: Step[];
+  title?: string;
+  caption?: string;
+}
+
+const { steps, title, caption } = Astro.props;
+---
+
+<figure class="flow-fig">
+  {title && <p class="flow-title">{title}</p>}
+  <ol class="flow" style={`--n: ${steps.length}`}>
+    {
+      steps.map((step) => (
+        <li class:list={['flow-step', `tone-${step.tone ?? 'default'}`]}>
+          <span class="flow-label">{step.label}</span>
+          {step.note && <span class="flow-note">{step.note}</span>}
+        </li>
+      ))
+    }
+  </ol>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .flow-fig {
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .flow-title {
+    margin-bottom: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .flow-step {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1.25px solid var(--rule-strong);
+    border-radius: 8px;
+    background: var(--bg);
+    text-align: center;
+  }
+
+  /* Connector between stages: a line with an arrowhead pointing down (phones) */
+  .flow-step + .flow-step::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: calc(-1 * var(--space-5));
+    width: 1.5px;
+    height: var(--space-5);
+    background: var(--rule-strong);
+    transform: translateX(-50%);
+  }
+
+  .flow-step + .flow-step::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -7px;
+    border: 5px solid transparent;
+    border-top-color: var(--rule-strong);
+    transform: translateX(-50%);
+  }
+
+  .flow-label {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .flow-note {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.35;
+  }
+
+  .tone-signal {
+    border-color: var(--signal);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 14%, transparent);
+  }
+
+  .tone-caution {
+    border-color: var(--caution);
+    background: color-mix(in srgb, var(--caution) 8%, var(--bg));
+  }
+
+  .tone-muted {
+    border-style: dashed;
+  }
+
+  .tone-muted .flow-label {
+    color: var(--text-muted);
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Wider screens: one row, arrows pointing right */
+  @media (min-width: 700px) {
+    .flow {
+      flex-direction: row;
+      align-items: stretch;
+      gap: var(--space-5);
+    }
+
+    .flow-step {
+      flex: 1 1 0;
+      justify-content: center;
+    }
+
+    .flow-step + .flow-step::before {
+      left: calc(-1 * var(--space-5));
+      top: 50%;
+      width: var(--space-5);
+      height: 1.5px;
+      transform: translateY(-50%);
+    }
+
+    .flow-step + .flow-step::after {
+      left: -7px;
+      top: 50%;
+      border-top-color: transparent;
+      border-left-color: var(--rule-strong);
+      transform: translateY(-50%);
+    }
+  }
+</style>

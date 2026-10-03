@@ -1,0 +1,72 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import WorkList from '../../components/WorkList.astro';
+import { getCaseStudies, getProjects } from '../../lib/content';
+import { url } from '../../lib/url';
+
+const caseStudies = await getCaseStudies();
+const projects = await getProjects();
+const orgs = [...new Set(caseStudies.map((entry) => entry.data.org))];
+---
+
+<BaseLayout title="Case studies" description="Case studies from Sai S Sarvade's data engineering work at TikTok and Delta Air Lines.">
+  <div class="container work-index">
+    <a class="back" href={url('#work')}>Back to the home page</a>
+    <header>
+      <h1>Case studies</h1>
+      <p>
+        {caseStudies.length} pieces of work from {orgs.join(' and ')}: the stakes, the decision that mattered, and the result.
+        Internal names and details are left out on purpose.
+      </p>
+    </header>
+
+    {
+      orgs.map((org) => (
+        <section class="org-group" aria-labelledby={`org-${org.replace(/\W+/g, '-').toLowerCase()}`}>
+          <h2 id={`org-${org.replace(/\W+/g, '-').toLowerCase()}`}>{org}</h2>
+          <WorkList items={caseStudies.filter((entry) => entry.data.org === org)} />
+        </section>
+      ))
+    }
+
+    {
+      projects.length > 0 && (
+        <section class="org-group" aria-labelledby="projects-title">
+          <h2 id="projects-title">Projects</h2>
+          <WorkList items={projects} />
+        </section>
+      )
+    }
+  </div>
+</BaseLayout>
+
+<style>
+  .work-index {
+    padding-top: var(--space-7);
+    padding-bottom: var(--space-9);
+  }
+
+  .back {
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  header {
+    max-width: var(--measure);
+    margin-top: var(--space-6);
+  }
+
+  header p {
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+  }
+
+  .org-group {
+    margin-top: var(--space-8);
+  }
+
+  .org-group h2 {
+    margin-bottom: var(--space-4);
+    font-size: var(--text-lg);
+  }
+</style>
