@@ -1,0 +1,271 @@
+---
+import { render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getWork, type WorkEntry } from '../../lib/content';
+import { url } from '../../lib/url';
+
+export async function getStaticPaths() {
+  const all = await getWork();
+  return all.map((entry) => {
+    // Previous/next stay within the same kind (case studies or projects).
+    const siblings = all.filter((e) => e.data.kind === entry.data.kind);
+    const i = siblings.findIndex((e) => e.id === entry.id);
+    return {
+      params: { slug: entry.id },
+      props: { entry, prev: siblings[i - 1], next: siblings[i + 1] },
+    };
+  });
+}
+
+interface Props {
+  entry: WorkEntry;
+  prev?: WorkEntry;
+  next?: WorkEntry;
+}
+
+const { entry, prev, next } = Astro.props;
+const { Content } = await render(entry);
+const { title, summary, org, period, figures, tags, links, kind } = entry.data;
+const isCaseStudy = kind === 'case-study';
+const backHref = url(isCaseStudy ? '#work' : '#projects');
+const backLabel = isCaseStudy ? 'Back to selected work' : 'Back to projects';
+---
+
+<BaseLayout title={title} description={summary} type="article">
+  <article class="container entry">
+    <a class="back" href={backHref}>{backLabel}</a>
+
+    <header class="entry-head">
+      <h1>{title}</h1>
+      <p class="entry-org">
+        {org}{period && `, ${period}`}
+        {entry.data.draft && <span class="draft"> (draft, only visible in dev)</span>}
+      </p>
+      <p class="lead">{summary}</p>
+
+      {
+        figures.length > 0 && (
+          <dl class="figures">
+            {figures.map((figure) => (
+              <div class="figure">
+                <dt>{figure.label}</dt>
+                <dd>{figure.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )
+      }
+    </header>
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    {
+      tags.length > 0 && (
+        <section class="entry-tags" aria-labelledby="tags-title">
+          <h2 id="tags-title">Stack and practices</h2>
+          <ul class="tag-list">
+            {tags.map((tag) => (
+              <li>{tag}</li>
+            ))}
+          </ul>
+        </section>
+      )
+    }
+
+    {
+      (links.repo || links.demo) && (
+        <ul class="entry-links">
+          {links.repo && (
+            <li>
+              <a href={links.repo}>Source code</a>
+            </li>
+          )}
+          {links.demo && (
+            <li>
+              <a href={links.demo}>Live demo</a>
+            </li>
+          )}
+        </ul>
+      )
+    }
+
+    {isCaseStudy && <p class="note">Internal system names and any figures beyond my résumé are left out on purpose.</p>}
+
+    {
+      (prev || next) && (
+        <nav class="pager" aria-label={isCaseStudy ? 'More case studies' : 'More projects'}>
+          {prev ? (
+            <a class="pager-link" href={url(`work/${prev.id}/`)} rel="prev">
+              <span class="pager-dir">Previous</span>
+              <span class="pager-title">{prev.data.title}</span>
+            </a>
+          ) : (
+            <span />
+          )}
+          {next && (
+            <a class="pager-link pager-next" href={url(`work/${next.id}/`)} rel="next">
+              <span class="pager-dir">Next</span>
+              <span class="pager-title">{next.data.title}</span>
+            </a>
+          )}
+        </nav>
+      )
+    }
+  </article>
+</BaseLayout>
+
+<style>
+  .entry {
+    padding-top: var(--space-7);
+    padding-bottom: var(--space-9);
+  }
+
+  .back {
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .entry-head {
+    margin-top: var(--space-6);
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .entry-head h1 {
+    max-width: 22ch;
+  }
+
+  .entry-org {
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .lead {
+    max-width: 58ch;
+    margin-top: var(--space-5);
+    font-size: var(--text-md);
+    line-height: 1.5;
+  }
+
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: var(--space-5);
+    margin-top: var(--space-6);
+  }
+
+  .figure {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: var(--space-1);
+    padding-top: var(--space-3);
+    border-top: 2px solid var(--signal);
+  }
+
+  .figure dd {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    font-stretch: 125%;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .figure dt {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .prose {
+    margin-top: var(--space-4);
+  }
+
+  .entry-tags {
+    max-width: var(--measure);
+    margin-top: var(--space-7);
+  }
+
+  .entry-tags h2 {
+    margin-bottom: var(--space-3);
+    font-size: var(--text-base);
+    font-stretch: 110%;
+  }
+
+  .entry-links {
+    display: flex;
+    gap: var(--space-5);
+    margin-top: var(--space-6);
+    padding: 0;
+    list-style: none;
+    font-weight: 600;
+  }
+
+  .note {
+    max-width: var(--measure);
+    margin-top: var(--space-7);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .draft {
+    color: var(--caution);
+  }
+
+  .pager {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+    margin-top: var(--space-7);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--rule);
+  }
+
+  .pager-link {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-4);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-s);
+    text-decoration: none;
+  }
+
+  .pager-link:hover {
+    background: var(--surface);
+    border-color: var(--rule-strong);
+  }
+
+  .pager-next {
+    text-align: right;
+  }
+
+  .pager-dir {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .pager-title {
+    color: var(--text);
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  @media (max-width: 560px) {
+    .pager {
+      grid-template-columns: 1fr;
+    }
+
+    .pager > span:empty {
+      display: none;
+    }
+
+    .pager-next {
+      text-align: left;
+    }
+  }
+</style>

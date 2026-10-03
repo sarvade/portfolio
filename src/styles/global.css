@@ -1,0 +1,467 @@
+/* ----------------------------------------------------------------------------
+   Fonts
+   Archivo variable, subset to Latin and limited to weight 400–800 and
+   width 100–125% (see scripts/subset-font.py). One family, two roles:
+   expanded widths for display, normal width for reading.
+---------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Archivo';
+  src: url('../fonts/archivo-var-subset.woff2') format('woff2');
+  font-weight: 400 800;
+  font-stretch: 100% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ----------------------------------------------------------------------------
+   Tokens
+---------------------------------------------------------------------------- */
+:root {
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale, after the classic 12 / 14 / 18 / 21 / 24 / 36 / 48 / 72 sequence */
+  --text-sm: 0.875rem;
+  --text-base: 1.0625rem;
+  --text-md: 1.3125rem;
+  --text-lg: 1.5rem;
+  --text-xl: clamp(1.75rem, 1.35rem + 1.4vw, 2.25rem);
+  --text-2xl: clamp(2.125rem, 1.55rem + 2.3vw, 3rem);
+  --text-hero: clamp(2.5rem, 1.35rem + 4.8vw, 4.5rem);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+
+  --radius-s: 6px;
+  --radius-m: 14px;
+
+  --container: 1180px;
+  --gutter: clamp(1rem, 0.4rem + 2.4vw, 2rem);
+  --measure: 66ch;
+  --header-h: 4rem;
+
+  /* Night palette (default): deep navy, sky-blue signal, avionics amber for caution */
+  color-scheme: dark;
+  --bg: #0b1a2b;
+  --surface: #102539;
+  --surface-2: #15304a;
+  --rule: #213d5a;
+  --rule-strong: #5079a6;
+  --text: #eaf0f6;
+  --text-muted: #a6b8cb;
+  --signal: #8cc8ff;
+  --signal-strong: #c2e2ff;
+  --on-signal: #0b1a2b;
+  --caution: #ffb547;
+  --grid: rgb(140 200 255 / 0.07);
+}
+
+@media (min-width: 900px) {
+  :root {
+    --text-base: 1.125rem;
+  }
+}
+
+/* Day palette: cool paper, ink navy, deep signal blue, dark amber */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg: #f5f8fb;
+    --surface: #ffffff;
+    --surface-2: #e8eef5;
+    --rule: #d3dde8;
+    --rule-strong: #748ba3;
+    --text: #0b1a2b;
+    --text-muted: #4a5e75;
+    --signal: #1456b8;
+    --signal-strong: #0b3c85;
+    --on-signal: #ffffff;
+    --caution: #9a5200;
+    --grid: rgb(20 86 184 / 0.06);
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f5f8fb;
+  --surface: #ffffff;
+  --surface-2: #e8eef5;
+  --rule: #d3dde8;
+  --rule-strong: #748ba3;
+  --text: #0b1a2b;
+  --text-muted: #4a5e75;
+  --signal: #1456b8;
+  --signal-strong: #0b3c85;
+  --on-signal: #ffffff;
+  --caution: #9a5200;
+  --grid: rgb(20 86 184 / 0.06);
+}
+
+/* ----------------------------------------------------------------------------
+   Base
+---------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--header-h) + var(--space-4));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: 400;
+  font-stretch: 100%;
+  line-height: 1.6;
+  font-kerning: normal;
+  font-variant-numeric: lining-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--text-2xl);
+  font-stretch: 118%;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: var(--text-xl);
+  font-stretch: 116%;
+  letter-spacing: -0.015em;
+}
+
+h3 {
+  font-size: var(--text-md);
+  font-stretch: 106%;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+}
+
+p,
+ul,
+ol,
+dl,
+figure,
+blockquote {
+  margin: 0;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--signal);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+a:hover {
+  color: var(--signal-strong);
+  text-decoration-color: currentColor;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--signal) 35%, transparent);
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: -100px;
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  background: var(--signal);
+  color: var(--on-signal);
+  font-weight: 600;
+  border-radius: var(--radius-s);
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: var(--space-3);
+}
+
+/* ----------------------------------------------------------------------------
+   Layout
+---------------------------------------------------------------------------- */
+.container {
+  width: 100%;
+  max-width: calc(var(--container) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Sections: heading in a left rail, content on the right (desktop) */
+.section {
+  padding-block: var(--space-8);
+  border-top: 1px solid var(--rule);
+}
+
+.section-grid {
+  display: grid;
+  gap: var(--space-5) var(--space-7);
+}
+
+.section-head p {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  max-width: 38ch;
+}
+
+@media (min-width: 960px) {
+  .section {
+    padding-block: var(--space-9);
+  }
+
+  .section-grid {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  }
+
+  .section-head {
+    position: sticky;
+    top: calc(var(--header-h) + var(--space-6));
+    align-self: start;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Buttons
+---------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2.875rem;
+  padding: 0 var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-stretch: 104%;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+.btn-primary:hover {
+  background: var(--signal-strong);
+  color: var(--on-signal);
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--rule-strong);
+}
+
+.btn-quiet:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  background: var(--surface);
+}
+
+.btn-small {
+  min-height: 2.25rem;
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+}
+
+/* ----------------------------------------------------------------------------
+   Tags
+---------------------------------------------------------------------------- */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.tag-list li {
+  padding: 0.3em 0.7em;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+}
+
+/* ----------------------------------------------------------------------------
+   Prose (case studies and posts)
+---------------------------------------------------------------------------- */
+.prose {
+  max-width: var(--measure);
+}
+
+.prose > * + * {
+  margin-top: var(--space-4);
+}
+
+.prose h2 {
+  margin-top: var(--space-7);
+  font-size: var(--text-lg);
+  font-stretch: 112%;
+}
+
+.prose h3 {
+  margin-top: var(--space-6);
+  font-size: var(--text-md);
+}
+
+.prose h2 + *,
+.prose h3 + * {
+  margin-top: var(--space-3);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.25em;
+}
+
+.prose li + li {
+  margin-top: var(--space-2);
+}
+
+.prose li::marker {
+  color: var(--text-muted);
+}
+
+.prose blockquote {
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--rule-strong);
+  color: var(--text-muted);
+}
+
+.prose img {
+  border-radius: var(--radius-s);
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin-block: var(--space-7);
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose th,
+.prose td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+
+.prose :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+.prose pre {
+  padding: var(--space-4) var(--space-5);
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-s);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+/* Shiki dual themes (defaultColor: false emits --shiki-light / --shiki-dark) */
+.astro-code,
+.astro-code span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+}
+
+:root[data-theme='light'] .astro-code,
+:root[data-theme='light'] .astro-code span {
+  color: var(--shiki-light);
+  background-color: var(--shiki-light-bg);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .astro-code,
+  :root:not([data-theme]) .astro-code span {
+    color: var(--shiki-light);
+    background-color: var(--shiki-light-bg);
+  }
+}

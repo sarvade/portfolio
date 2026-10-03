@@ -1,0 +1,132 @@
+---
+import { getEntry } from 'astro:content';
+import { experience } from '../data/profile';
+import { url } from '../lib/url';
+
+// Resolve case-study titles once so links have descriptive accessible names.
+const titles = new Map<string, string>();
+for (const job of experience) {
+  for (const h of job.highlights) {
+    if (h.work && !titles.has(h.work)) {
+      const entry = await getEntry('work', h.work);
+      if (!entry) throw new Error(`Experience links to missing case study "${h.work}"`);
+      titles.set(h.work, entry.data.title);
+    }
+  }
+}
+---
+
+<ol class="timeline">
+  {
+    experience.map((job) => (
+      <li class="job" id={`experience-${job.id}`}>
+        <p class="job-when">
+          {job.start} to {job.end}
+        </p>
+        <div class="job-main">
+          <h3>
+            {job.role}, {job.company}
+          </h3>
+          <p class="job-where">{job.location}</p>
+          {job.context && <p class="job-context">{job.context}</p>}
+          <ul class="job-highlights">
+            {job.highlights.map((h) => (
+              <li>
+                {h.text}
+                {h.work && (
+                  <>
+                    {' '}
+                    <a class="case-link" href={url(`work/${h.work}/`)} aria-label={`Case study: ${titles.get(h.work)}`}>
+                      Case study
+                    </a>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .timeline {
+    padding: 0;
+    list-style: none;
+  }
+
+  .job {
+    position: relative;
+    display: grid;
+    gap: var(--space-2) var(--space-6);
+    padding-left: var(--space-5);
+    padding-bottom: var(--space-7);
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .job:last-child {
+    padding-bottom: 0;
+  }
+
+  /* Marker on the timeline */
+  .job::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 0.45em;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--signal);
+  }
+
+  .job-when {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .job-where {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .job-context {
+    margin-top: var(--space-3);
+    max-width: 60ch;
+  }
+
+  .job-highlights {
+    margin-top: var(--space-4);
+    padding-left: 1.1em;
+    list-style: disc;
+    max-width: 66ch;
+  }
+
+  .job-highlights li + li {
+    margin-top: var(--space-3);
+  }
+
+  .job-highlights li::marker {
+    color: var(--rule-strong);
+  }
+
+  .case-link {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  @media (min-width: 720px) {
+    .job {
+      grid-template-columns: 9.5rem minmax(0, 1fr);
+    }
+
+    .job-when {
+      padding-top: 0.2em;
+    }
+  }
+</style>

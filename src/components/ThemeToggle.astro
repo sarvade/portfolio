@@ -1,0 +1,88 @@
+<button class="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+  <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="1.75"></circle>
+    <path
+      d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"></path>
+  </svg>
+  <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <path
+      d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2Z"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linejoin="round"></path>
+  </svg>
+</button>
+
+<style>
+  .theme-toggle {
+    display: none;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius-s);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .theme-toggle:hover {
+    background: var(--surface);
+    border-color: var(--text-muted);
+  }
+
+  /* Needs JS to work, so only show it when JS is running. */
+  :global(.js) .theme-toggle {
+    display: inline-grid;
+  }
+
+  /* Show the icon of the theme you would switch to. */
+  .icon-sun {
+    display: block;
+  }
+
+  .icon-moon {
+    display: none;
+  }
+
+  :global([data-theme='light']) .icon-sun {
+    display: none;
+  }
+
+  :global([data-theme='light']) .icon-moon {
+    display: block;
+  }
+</style>
+
+<script>
+  const button = document.querySelector<HTMLButtonElement>('.theme-toggle');
+  const root = document.documentElement;
+  const meta = document.querySelector('meta[name="theme-color"]');
+
+  const label = () => {
+    const next = root.dataset.theme === 'light' ? 'dark' : 'light';
+    const text = `Switch to ${next} theme`;
+    button?.setAttribute('aria-label', text);
+    button?.setAttribute('title', text);
+  };
+
+  label();
+
+  button?.addEventListener('click', () => {
+    const next = root.dataset.theme === 'light' ? 'dark' : 'light';
+    root.dataset.theme = next;
+    meta?.setAttribute('content', next === 'light' ? '#f5f8fb' : '#0b1a2b');
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      // Storage can be unavailable (private mode); the theme still applies for this visit.
+    }
+    label();
+  });
+</script>
