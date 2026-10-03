@@ -1,6 +1,6 @@
 ---
 title: Where LLMs earn their keep in data engineering
-description: LLMs are good at reading, drafting and explaining. They're bad at being the source of a number. How I'd use them on a data team, and the guardrails that make it safe.
+description: LLMs are good at reading, drafting and explaining. They’re bad at being the source of a number. How I’d use them on a data team, and the guardrails that make it safe.
 pubDate: 2026-10-03T17:00:00Z
 tags:
   - ai

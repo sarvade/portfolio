@@ -62,6 +62,8 @@
   --on-signal: #0b1a2b;
   --caution: #ffb547;
   --grid: rgb(140 200 255 / 0.07);
+  /* Animated name in the hero: a soft spectrum, every stop above 8:1 on --bg */
+  --spectrum: #7cc4ff, #a5b4fc, #d8b4fe, #f9a8d4, #fdba74, #fde047, #86efac, #5eead4, #7cc4ff;
 }
 
 @media (min-width: 900px) {
@@ -86,6 +88,8 @@
     --on-signal: #ffffff;
     --caution: #9a5200;
     --grid: rgb(20 86 184 / 0.06);
+    /* Deeper stops for paper; every stop above 4.5:1 on --bg */
+    --spectrum: #1456b8, #4f46e5, #7e22ce, #be185d, #c2410c, #a16207, #15803d, #0f766e, #1456b8;
   }
 }
 
@@ -103,6 +107,7 @@
   --on-signal: #ffffff;
   --caution: #9a5200;
   --grid: rgb(20 86 184 / 0.06);
+  --spectrum: #1456b8, #4f46e5, #7e22ce, #be185d, #c2410c, #a16207, #15803d, #0f766e, #1456b8;
 }
 
 /* ----------------------------------------------------------------------------

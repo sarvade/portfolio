@@ -1,6 +1,6 @@
 ---
 title: Make reruns boring
-description: Retries and backfills will happen. If running a job twice changes the answer, the pipeline isn't finished. Four patterns I use to make reruns safe.
+description: Retries and backfills will happen. If running a job twice changes the answer, the pipeline isn’t finished. Four patterns I use to make reruns safe.
 pubDate: 2026-10-03T15:00:00Z
 tags:
   - pipelines

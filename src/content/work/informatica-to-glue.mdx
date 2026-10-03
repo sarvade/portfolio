@@ -1,44 +1,45 @@
 ---
-title: Retiring Informatica for AWS Glue
-summary: I led the migration of 50+ legacy Informatica workflows onto AWS Glue and Lambda, cutting licensing costs 65%.
+title: Moving 50+ Informatica workflows to AWS Glue and Lambda, ~$850K a year saved
+summary: More than 50 production ETL workflows ran on a licensed legacy platform. I led their migration to AWS Glue (PySpark) and Lambda under GitHub-based CI/CD, cutting licensing costs 65%, roughly $850K a year.
 org: Delta Air Lines
-order: 6
+order: 10
 featured: true
 headline:
   value: '~$850K'
   label: a year in licensing costs removed
 figures:
   - value: '50+'
-    label: workflows migrated
+    label: production workflows migrated
   - value: '65%'
     label: lower licensing costs
   - value: '~$850K'
-    label: saved a year
+    label: saved every year
 tags:
   - AWS Glue
   - PySpark
   - AWS Lambda
   - GitHub
   - CI/CD
+  - Legacy migration
 ---
 
 import Flow from '../../components/viz/Flow.astro';
 import Compare from '../../components/viz/Compare.astro';
 
-## Context
+## What was at stake
 
-More than 50 ETL workflows ran on Informatica, a licensed legacy platform, and the license was a large, recurring cost.
+More than 50 production ETL workflows ran on Informatica, a licensed legacy platform. The license was a large cost that recurred every year whether the workflows changed or not, and the logic lived inside a proprietary tool instead of in version control.
 
 ## What I did
 
-I led the migration of those 50+ workflows onto AWS Glue (PySpark) and AWS Lambda, and put the migrated code under GitHub-based CI/CD.
+I led the migration of those 50+ workflows onto AWS Glue (PySpark) and AWS Lambda, and put the migrated code under GitHub-based CI/CD. Every transformation moved out of a licensed GUI and into code that is versioned and deployed through CI/CD like the rest of the stack.
 
 <Flow
   title="The migration"
   steps={[
     { label: 'Informatica workflows', note: '50+, licensed', tone: 'muted' },
-    { label: 'AWS Glue (PySpark) and Lambda', tone: 'signal' },
-    { label: 'GitHub-based CI/CD' },
+    { label: 'AWS Glue (PySpark) and Lambda', note: 'code, not a GUI', tone: 'signal' },
+    { label: 'GitHub-based CI/CD', note: 'versioned, deployed by pipeline' },
   ]}
 />
 
@@ -53,4 +54,4 @@ I led the migration of those 50+ workflows onto AWS Glue (PySpark) and AWS Lambd
   caption="Linear scale. 65% lower, roughly $850K a year."
 />
 
-Licensing costs dropped 65%, roughly $850K a year.
+Licensing costs dropped 65%, roughly $850K a year, and the saving recurs: licensing stays 65% lower every year the workflows run on Glue and Lambda.

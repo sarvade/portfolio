@@ -1,12 +1,12 @@
 ---
-title: Real-time rankings over 1.5B+ live-commerce events
-summary: A ranking feature had stalled because it scanned the serving database on every request. Others were tuning the query; I moved the computation upstream into Flink and served precomputed results.
+title: Real-time leaderboards over 1.5B+ live-commerce events
+summary: A ranking feature had stalled because it scanned the serving database on every page load, and the work in progress was query tuning. I moved the computation upstream into Flink, so a page load became a single lookup instead of a scan across millions of rows.
 org: TikTok
 order: 3
 featured: true
 headline:
   value: '1.5B+'
-  label: events ranked hourly in Flink
+  label: live-commerce events aggregated in Flink, in hourly windows
 figures:
   - value: '1.5B+'
     label: records in the stream
@@ -14,9 +14,12 @@ figures:
     label: processed
   - value: '100'
     label: parallelism
+  - value: 'Scan → lookup'
+    label: per page load
 tags:
   - Apache Flink
   - Stream processing
+  - Windowed aggregation
   - Message queues
   - Serving stores
   - Privacy by design
@@ -27,11 +30,13 @@ import Callout from '../../components/viz/Callout.astro';
 
 ## What was at stake
 
-The feature shows creators the top-performing live sessions and products each hour, so they can learn from what's working. The original design read the serving database on every request, scanning across millions of rows, and it couldn't meet its latency budget. It had stalled, and the work in progress was tuning the query.
+The feature shows creators the top-performing live sessions and products each hour, so they can learn from what is working right now. The original design read the serving database on every request, scanning across millions of rows, and it couldn't meet its latency budget. The feature had stalled, and the effort in flight was tuning the query.
 
 ## Diagnosis
 
-The query wasn't the constraint. The access pattern was. No amount of tuning makes a full scan on every page load fast, because the expensive work was happening at the worst possible moment: while a person waited.
+Before writing any code, I drew the hour-by-hour data flow on paper (events, windowed aggregation, ranking messages, serving store) and walked it through with the infrastructure owner to check my model against reality. That is where the real constraint showed up.
+
+The query wasn't the problem. The access pattern was. No amount of tuning makes a full scan on every page load fast, because the expensive work was happening at the worst possible moment: while a person waited for it.
 
 <Callout label="The call">
   Stop computing at read time. Do the heavy work once, as events arrive, and make the page read a precomputed answer.
@@ -42,7 +47,7 @@ The query wasn't the constraint. The access pattern was. No amount of tuning mak
   steps={[
     { label: 'Creator opens the page' },
     { label: 'Query the serving database' },
-    { label: 'Scan millions of rows', note: 'per request', tone: 'caution' },
+    { label: 'Scan millions of rows', note: 'on every request', tone: 'caution' },
     { label: 'Misses the latency budget', tone: 'caution' },
   ]}
 />
@@ -60,12 +65,12 @@ The query wasn't the constraint. The access pattern was. No amount of tuning mak
 
 ## What I built
 
-Flink streaming jobs over the live-commerce event stream, 1.5B+ records and 294 GB at parallelism 100, producing hourly revenue and traffic rankings. The results are published through a message queue into a serving store indexed for ranking, so what used to be a scan across millions of rows became a single lookup.
+Flink streaming jobs over the live-commerce event stream, 1.5B+ records and 294 GB at parallelism 100, producing hourly revenue and traffic rankings. Results are published through a message queue into a serving store indexed for ranking, so the cost of a page load no longer grows with the number of live sessions.
 
 The shape of it, as an illustrative pattern rather than production code:
 
 ```sql
--- Flink SQL: hourly rankings computed as events arrive
+-- Flink SQL: hourly aggregates that feed the rankings, computed as events arrive
 insert into hourly_rankings
 select session_id,
        window_start,
@@ -78,8 +83,10 @@ from table(
 group by session_id, window_start, window_end;
 ```
 
-Privacy was part of the design, not an afterthought: revenue is shown as ranges, and participation is opt-in.
+## Privacy as a pipeline property
+
+The product shows revenue as ranges rather than exact figures, and participation is opt-in, so creators can benchmark against each other without anyone's earnings being exposed to a peer. I built the pipeline to those constraints from the start, so the privacy property is structural rather than a display-layer promise.
 
 ## Result
 
-Rankings return instantly, and query time and compute cost dropped by orders of magnitude. The feature launched for A/B testing.
+Rankings return instantly, query time and compute cost dropped by orders of magnitude, and the feature launched for A/B testing. The stalled design was never going to get there with tuning; the redesign of where the work happens did.

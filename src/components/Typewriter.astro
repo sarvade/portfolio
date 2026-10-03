@@ -2,17 +2,19 @@
 /*
   Rotating roles typed out letter by letter, modelled on the reference site's
   typewriter: type at 75 ms a letter, hold 1.9 s, delete at 38 ms, pause 0.4 s.
-  Screen readers get the full list once as plain text; the animated text is
-  hidden from them. With JS off or reduced motion, the first role shows still.
+  Screen readers (and copy-paste) get the full list once as plain text; the
+  animated text is hidden from both. With JS off or reduced motion, the first role shows still.
 */
 interface Props {
   roles: string[];
 }
 const { roles } = Astro.props;
+// "a, b, and c" for screen readers and for copy-paste.
+const spoken = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(roles);
 ---
 
 <span class="typewriter">
-  <span class="visually-hidden">{roles.join(', ')}</span>
+  <span class="visually-hidden">{spoken}</span>
   <span class="tw-text" aria-hidden="true" data-roles={JSON.stringify(roles)}>{roles[0]}</span><span
     class="tw-caret"
     aria-hidden="true"></span>
@@ -21,6 +23,13 @@ const { roles } = Astro.props;
 <style>
   .typewriter {
     white-space: nowrap;
+  }
+
+  /* Decorative, so it stays out of copy-paste; the full list above is what gets copied. */
+  .tw-text,
+  .tw-caret {
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .tw-text {

@@ -16,15 +16,23 @@ interface Props {
   title: string;
   rows: Row[];
   scale?: 'linear' | 'log';
+  /**
+   * Linear scale only: the value a full-width bar stands for. Defaults to the
+   * largest row. Set it to the population (e.g. 236 items) when bars are shares of a whole.
+   */
+  max?: number;
   caption?: string;
 }
 
-const { title, rows, scale = 'linear', caption } = Astro.props;
-const max = Math.max(...rows.map((r) => r.value));
-const min = Math.min(...rows.map((r) => r.value));
+const { title, rows, scale = 'linear', max: maxProp, caption } = Astro.props;
+const max = maxProp ?? Math.max(...rows.map((r) => r.value));
+const positive = rows.map((r) => r.value).filter((v) => v > 0);
+const min = positive.length ? Math.min(...positive) : 1;
 // Log axis starts one decade below the smallest value so the smallest bar stays visible.
 const lo = scale === 'log' ? Math.pow(10, Math.floor(Math.log10(min)) - 1) : 0;
 const width = (v: number) => {
+  // A true zero draws no bar at all; the label carries the value.
+  if (v <= 0) return '0';
   const pct =
     scale === 'log' ? ((Math.log10(v) - Math.log10(lo)) / (Math.log10(max) - Math.log10(lo))) * 100 : (v / max) * 100;
   return Math.max(2, Math.min(100, pct)).toFixed(1);

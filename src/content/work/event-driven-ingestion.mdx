@@ -1,14 +1,14 @@
 ---
-title: Cutting ingestion latency from 2 hours to under 5 minutes
-summary: I built asynchronous, event-driven ingestion on Kinesis, Lambda, and SNS for 3M+ transactions a day.
+title: 'From 2 hours to under 5 minutes: event-driven ingestion for 3M+ transactions a day'
+summary: Transaction data reached downstream systems two hours late. I built asynchronous, event-driven ingestion on Kinesis, Lambda and SNS, carrying 3M+ transactions a day (over a billion a year) at 99.9% uptime.
 org: Delta Air Lines
-order: 7
+order: 11
 headline:
-  value: '<5 min'
-  label: end-to-end latency, down from 2 hours
+  value: '>24×'
+  label: faster end to end, from 2 hours to under 5 minutes
 figures:
   - value: '3M+'
-    label: transactions a day
+    label: transactions a day, over 1B a year
   - value: '99.9%'
     label: uptime
   - value: '<5 min'
@@ -18,26 +18,27 @@ tags:
   - AWS Lambda
   - Amazon SNS
   - Event-driven architecture
+  - Asynchronous processing
 ---
 
 import Flow from '../../components/viz/Flow.astro';
 import Compare from '../../components/viz/Compare.astro';
 
-## Context
+## What was at stake
 
-End-to-end latency for transaction data was 2 hours, so anything downstream was always working from data that was hours old.
+End-to-end latency for transaction data was two hours, so everything downstream was always working from data that was hours old, for more than three million transactions a day.
 
 ## What I did
 
-I built asynchronous, event-driven ingestion on Kinesis, Lambda, and SNS to carry 3M+ transactions a day.
+I built asynchronous, event-driven ingestion on Kinesis, Lambda and SNS. Transactions land on a Kinesis stream as they happen, Lambda consumes them in small batches, and SNS notifies downstream consumers as data lands, so no stage waits on a schedule.
 
 <Flow
   title="Event-driven ingestion"
   steps={[
     { label: 'Transactions', note: '3M+ a day' },
-    { label: 'Amazon Kinesis', tone: 'signal' },
-    { label: 'AWS Lambda' },
-    { label: 'Amazon SNS' },
+    { label: 'Amazon Kinesis', note: 'event stream', tone: 'signal' },
+    { label: 'AWS Lambda', note: 'consumes in small batches' },
+    { label: 'Amazon SNS', note: 'fan-out notifications' },
     { label: 'Downstream consumers' },
   ]}
 />
@@ -50,7 +51,7 @@ I built asynchronous, event-driven ingestion on Kinesis, Lambda, and SNS to carr
     { label: 'Before', value: 120, display: '2 hours', tone: 'before' },
     { label: 'After', value: 5, display: '<5 min', tone: 'after' },
   ]}
-  caption="Linear scale. The after bar shows the 5-minute upper bound."
+  caption="Linear scale. The after bar shows the 5-minute upper bound, so the real gap is wider than drawn."
 />
 
-End-to-end latency fell from 2 hours to under 5 minutes, at 99.9% uptime.
+End-to-end latency fell from two hours to under five minutes, more than 24 times faster, at 99.9% uptime, for over a billion transactions a year.

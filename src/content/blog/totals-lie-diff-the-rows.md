@@ -1,6 +1,6 @@
 ---
 title: Totals lie. Diff the rows.
-description: Matching totals don't mean matching data. The row-level diff is the cheapest insurance I know in data engineering, and this is how I run it.
+description: Matching totals don’t mean matching data. The row-level diff is the cheapest insurance I know in data engineering, and this is how I run it.
 pubDate: 2026-10-03T18:00:00Z
 tags:
   - data quality

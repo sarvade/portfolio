@@ -1,0 +1,54 @@
+---
+title: A/B measurement for a new multimodal AI model, in my first two months
+summary: A new video-analysis model had to prove itself against the old one on real traffic. I carried the model’s strategy version through three pipelines into two OLAP tables and two APIs, so metrics could be split by model from launch day.
+org: TikTok
+order: 7
+headline:
+  value: 'Day 1'
+  label: model-versus-model comparison on real creator traffic, from launch
+figures:
+  - value: '3'
+    label: pipelines carrying the model version
+  - value: '2'
+    label: OLAP tables
+  - value: '2'
+    label: APIs
+  - value: '< 2 months'
+    label: after I joined
+tags:
+  - ML experimentation
+  - A/B measurement
+  - Lineage
+  - OLAP serving
+  - Scope discipline
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+A new multimodal model for analyzing creator videos was launching, and it had to beat the old one on real traffic. Without metrics split by model version, "is the new one better?" becomes a question you answer a release cycle later, from anecdotes.
+
+## What I built
+
+The model's strategy version became a first-class key in the data. I carried it through three pipelines into two OLAP tables and the two APIs that read them, so downstream metrics could be compared old model against new on the same traffic. If that key goes missing at any hop, the split silently collapses into one blended number, so it had to survive every join, aggregation and sync in the chain.
+
+<Flow
+  title="The model version, end to end"
+  steps={[
+    { label: 'Model output', note: 'tagged with strategy version', tone: 'signal' },
+    { label: 'Three pipelines', note: 'version kept as a key' },
+    { label: 'Two OLAP tables' },
+    { label: 'Two APIs' },
+    { label: 'A/B readout', note: 'old model vs new' },
+  ]}
+/>
+
+<Callout label="The call">
+  Mid-flight, I was asked to absorb algorithm-layer logic that belonged with the model team. I held the line: the data layer measures the model, it doesn't reimplement it. That kept ownership clear on both sides.
+</Callout>
+
+## Result
+
+The model team compared the new model against the old one on real creator traffic from launch day, instead of waiting a release cycle. It shipped inside my first two months on the job.

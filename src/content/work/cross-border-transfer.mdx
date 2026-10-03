@@ -1,0 +1,71 @@
+---
+title: Moving regulated data across a residency boundary with zero compliance findings
+summary: Analysts in one region were blocked on data governed by another region’s residency rules, and I couldn’t query the source directly. I set one pattern for every table, shipped the transfers with zero compliance findings, and replaced ad-hoc data requests with a self-serve dataset.
+org: TikTok
+order: 6
+featured: true
+headline:
+  value: '0'
+  label: compliance findings across every table I transferred
+figures:
+  - value: '0'
+    label: compliance findings
+  - value: '3 days → 1 hour'
+    label: investigation turnaround
+  - value: 'Within SLA'
+    label: remediation of an older flagged transfer
+  - value: 'Team standard'
+    label: the transfer playbook I wrote
+tags:
+  - Data residency
+  - Field-level classification
+  - Cross-region validation
+  - Schema stability
+  - Self-serve datasets
+  - Documentation
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+Analysts and data scientists in one region needed creator and seller data that lives under another region's data-residency rules. In that setting, one protected column crossing the boundary isn't a bug. It is a compliance incident. And I couldn't query the source directly to check my own work the usual way.
+
+## The call
+
+<Callout label="The call">
+  No table is the easy one. Every table gets the same pattern, so correctness comes from the process instead of from remembering which tables were risky.
+</Callout>
+
+<Flow
+  title="The pattern, applied to every table"
+  steps={[
+    { label: 'Register and classify fields', note: 'approval before any data moves' },
+    { label: 'Substitute protected fields', note: 'null values, same columns', tone: 'signal' },
+    { label: 'Transfer and monitor' },
+    { label: 'Row-level validation', note: 'source region vs destination' },
+    { label: 'Self-serve dataset' },
+  ]}
+/>
+
+**Substitute, don't drop.** Protected fields keep their column and type and lose their value. Dropping columns would have broken downstream schemas silently, three hops away from anything I could see. The shape of it, as an illustrative pattern rather than production code:
+
+```sql
+-- Protected fields keep their column and type, lose their value
+select item_id,
+       content_category,                         -- approved for transfer
+       play_cnt,                                 -- approved for transfer
+       cast(null as bigint) as protected_metric, -- substituted, not dropped
+       dt
+from   source_daily
+where  dt = '{{ ds }}';
+```
+
+**Validate rows, not job status.** A completed transfer job proves the job ran, not that the data is right. I validated row by row across the two regions. I also resolved a partition field named differently on each side, a mismatch that would have quietly produced empty results.
+
+**Own the old ones too.** When a compliance review flagged a row-level identifier on an older transfer that predated my work, I remediated it within the SLA using the same pattern instead of debating whose it was.
+
+## Result
+
+Zero compliance findings across every table I transferred. I built a self-serve dataset so analysts stopped filing ad-hoc requests, and investigation turnaround went from about three days to about an hour. I wrote the reference (SQL, schemas, partitions and compliance notes for each table), and it became the team's standard for later transfers. The part I'm proudest of is that it works without me in the room.

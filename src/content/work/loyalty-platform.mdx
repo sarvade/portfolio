@@ -1,21 +1,21 @@
 ---
-title: 'Miles in minutes: modernizing an elite loyalty platform on AWS'
-summary: Elite travelers waited until the next morning to see their miles. I architected the platform on AWS and moved batch jobs to streaming, so miles show up within minutes of landing.
+title: 'Miles in minutes: re-architecting an elite loyalty platform on AWS'
+summary: Delta’s most valuable travelers waited until the next morning to see their miles. I architected the platform on AWS, moved it from nightly batch to streaming across 750+ flights a day, and owned the security controls it runs on.
 org: Delta Air Lines
-order: 5
+order: 9
 featured: true
 headline:
   value: '1.6M+'
-  label: elite travelers see miles within minutes, not the next morning
+  label: elite travelers see miles within minutes of landing, not the next morning
 figures:
   - value: '1.6M+'
     label: elite travelers
   - value: '750+'
-    label: flights a day
+    label: flights a day, about 270K a year
   - value: '45%'
     label: better query performance
   - value: '99.9%'
-    label: accuracy against source
+    label: ingestion accuracy against source
 tags:
   - AWS
   - Apache Spark
@@ -25,6 +25,7 @@ tags:
   - Apache Kafka
   - Apache Flume
   - ClickHouse
+  - Streaming
   - IAM and encryption
   - CI/CD
 ---
@@ -34,11 +35,11 @@ import Callout from '../../components/viz/Callout.astro';
 
 ## What was at stake
 
-For a status-chasing frequent flyer, the miles balance isn't a feature. It is the product. The loyalty platform for elite travelers ran on Informatica batch jobs, so a traveler who landed couldn't see their miles until the next morning.
+For a status-chasing frequent flyer, the miles balance isn't a feature. It is the product. The platform behind it for Delta's elite travelers ran on Informatica batch jobs, so someone who landed in the evening couldn't see their miles until the next morning.
 
 ## What I built
 
-I architected the platform on AWS, with Spark and Hive over Iceberg tables on S3. I built the ingestion with Kafka, Flume and ClickHouse, landing vendor API data at 99.9% accuracy against source, and converted the existing batch jobs to streaming for the daily flight volume.
+I architected the platform on AWS, with Spark and Hive over Iceberg tables on S3. I built the ingestion layer with Kafka, Flume and ClickHouse, landing vendor API data at 99.9% accuracy against source, and converted the existing batch jobs to streaming for the full daily flight volume: 750+ flights a day, roughly 270,000 a year.
 
 <Flow
   title="Before: nightly batch"
@@ -50,19 +51,19 @@ I architected the platform on AWS, with Spark and Hive over Iceberg tables on S3
 />
 
 <Flow
-  title="After: streaming"
+  title="After: streaming on AWS"
   steps={[
-    { label: 'Flight lands' },
-    { label: 'Streaming ingestion', note: 'Kafka, Flume', tone: 'signal' },
+    { label: 'Flight and vendor events' },
+    { label: 'Ingestion', note: 'Kafka, Flume, ClickHouse', tone: 'signal' },
     { label: 'Spark and Hive', note: 'over Iceberg tables on S3' },
     { label: 'Miles visible within minutes' },
   ]}
 />
 
 <Callout label="Ownership">
-  This is loyalty data for identified travelers, so the security posture wasn't someone else's job. I owned the encryption, IAM and CI/CD controls the platform ran on.
+  This is loyalty data for identified travelers, so the security posture wasn't someone else's job. I owned the encryption, IAM and CI/CD controls the platform runs on.
 </Callout>
 
 ## Result
 
-More than 1.6 million elite travelers went from seeing their miles the next morning to seeing them within minutes of landing, across 750+ daily flights, and query performance improved 45%.
+More than 1.6 million elite travelers went from seeing their miles the next morning to seeing them within minutes of landing, and query performance improved 45%. The same platform carries every one of those 750+ daily flights.

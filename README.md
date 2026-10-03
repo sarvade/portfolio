@@ -30,6 +30,8 @@ npm run preview    # serve the production build
 | Approach section (habits + illustrative snippets) | `principles` in `src/data/profile.ts` |
 | Impact numbers under the hero | `impact` in `src/data/profile.ts` |
 | Typewriter roles | `hero.roles` in `src/data/profile.ts` |
+| Hero headline (two lines, split at the first period) | `hero.headline` in `src/data/profile.ts`, then `scripts/og/og.html` and `python3 scripts/render-images.py` for the link preview |
+| Colors of the animated name | `--spectrum` in `src/styles/global.css` (one list per theme) |
 | Icons | `src/icons/*.svg` (Tabler Icons, MIT), used via `<Icon name="..." />` |
 
 ## Add a blog post
@@ -46,7 +48,7 @@ The "Writing" section on the home page, the nav link, `/portfolio/blog/`, and th
 Case studies are MDX, so they can use the built-in components in `src/components/viz/`:
 
 - `<Flow steps={[...]} title="..." />`: an architecture flow that stacks vertically on phones. Step `tone` can be `signal`, `caution` or `muted`.
-- `<Compare title="..." rows={[...]} caption="..." />`: before/after bars drawn to one linear scale, values labeled.
+- `<Compare title="..." rows={[...]} caption="..." />`: before/after bars drawn to one scale, values labeled. Add `scale="log"` for 10×+ gaps, or `max={236}` to draw bars as shares of a whole; a value of 0 draws no bar.
 - `<Callout label="The call">...</Callout>`: highlights the judgment call.
 
 ## Add a project or case study

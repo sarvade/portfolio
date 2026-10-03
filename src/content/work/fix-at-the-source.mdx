@@ -1,27 +1,28 @@
 ---
-title: Fixing a failure class at the source, not the symptom
-summary: A creator-facing feature vanished during a P1. I restored it the same day, then traced two disagreeing APIs to one source table built on a false assumption, and fixed it there.
+title: 'Same-day P1 restore, then designing out a false assumption'
+summary: A creator-facing feature vanished in a P1 and I restored it the same day. When two APIs later contradicted each other, I traced both to one table built on a false assumption, caught my own first fix corrupting 67,565 rows before it shipped, and then dropped that validated fix for a simpler design in which the two can’t disagree.
 org: TikTok
 order: 4
 featured: true
 headline:
   value: '67,565'
-  label: bad rows my validation caught in my own first fix
+  label: corrupted rows my validation caught in my own first fix, before it shipped
 figures:
   - value: 'Same day'
     label: feature restored during the P1
   - value: '67,565'
     label: rows caught by validation before shipping
   - value: '0.0000%'
-    label: difference after the corrected fix
+    label: difference after the rewrite
   - value: '2,993'
-    label: items recovered in testing
+    label: videos recovered in a three-day test
 tags:
   - Root cause analysis
+  - Incident response
   - Anti-joins
   - Cumulative tables
-  - Validation
-  - Incident response
+  - Diff validation
+  - Serving-layer design
 ---
 
 import Flow from '../../components/viz/Flow.astro';
@@ -29,56 +30,80 @@ import Callout from '../../components/viz/Callout.astro';
 
 ## What was at stake
 
-The feature marks a creator's best videos so they can learn what works. It disappeared for creators in one region, which made it a P1. Later the list of videos and the badge on each video started to disagree, and nothing makes a product look less trustworthy than contradicting itself on a creator's own dashboard.
+The feature marks a creator's best videos so they can learn what to make more of. It disappeared for creators in one region, which made it a P1. Months later, the list of quality videos and the badge on each video started to disagree, and nothing makes a product look less trustworthy than contradicting itself on a creator's own dashboard.
 
 I was the named data owner for the APIs behind it, serving a region I can't query directly.
 
-## Restore first
+## Restore first, and say what's left
 
-The cause of the outage was a filter that only looked at a single day's partition, so anyone whose latest partition arrived late simply dropped out. I shipped the smallest reversible fix the same day. Then I caught and fixed a duplicate-row regression my own fix had introduced, and wrote down the risks that remained instead of hiding them.
+The outage came from a filter that only looked at a single day's partition, so any creator whose latest partition landed late simply dropped out. I shipped the smallest reversible fix the same day. It introduced duplicate rows for some creators; I said so in the ticket the same day, fixed it, confirmed the sibling API needed no change, and wrote down the risks I knowingly hadn't removed (an unbounded partition scan and a hard-coded floor date) so they were visible debt rather than a trap for the next person.
 
-## Then find the real cause
+## Then find the assumption
 
-When the list and the badge disagreed, I proved the mechanism first. Then, instead of bringing code, I brought the PM a product decision: should a video keep the badge once it earns it, or be re-evaluated every day? Her answer turned what I had been calling a design trade-off into a bug, and I said so.
+When the list and the badge disagreed, my first read was that this was a defensible design trade-off. Instead of arguing it, I proved the mechanism (field-by-field access to a restricted upstream table showed specific videos had genuinely been re-scored) and brought the PM a product decision rather than code: should a video keep the badge once it earns it, or be re-evaluated every day? She said keep it. That turned my trade-off into a bug, and I said so in the thread.
 
-Both APIs read from one source table, and that table was built on a false assumption: that the quality flag, once set, never flips back. Fixing it there fixes both APIs at once.
+The root cause was an assumption nobody had written down. Both APIs were downstream copies of one source table, and that table was built on the belief that a video's quality flag, once set, never flips back. It did flip back, and nothing in the system noticed.
 
 <Flow
-  title="Where the fix belongs"
+  title="Where the disagreement came from"
   steps={[
     { label: 'Upstream quality flag', note: 'can flip back', tone: 'caution' },
-    { label: 'Shared source table', note: 'the fix lives here', tone: 'signal' },
-    { label: 'List API and badge API', note: 'both read this table' },
+    { label: 'Shared source table', note: 'assumes it never does', tone: 'caution' },
+    { label: 'Two copies, two stores', note: 'list API and badge API' },
+    { label: 'Same video, two answers', tone: 'caution' },
   ]}
 />
 
-<Callout label="The call">
-  Patch the symptom in two APIs and they drift again next quarter. Fix the assumption in the one table they share and the whole class of failure goes away.
-</Callout>
+## Fix one: make the source remember
 
-## Validation caught my own bug
-
-My first version used an aggregation to build the persistent pool. Validation showed it corrupting 67,565 rows. I replaced the aggregation with an anti-join and validated again, this time to zero difference.
+My first design made the source table cumulative: carry forward everything already tagged, add what qualifies today. In a three-day test it recovered 2,993 videos that had silently lost the badge. Then my diff validation against production caught it corrupting 67,565 rows in another region: I had aggregated an attribute that isn't constant per video. I replaced the aggregation with an anti-join, so today's values always win and yesterday's pool only fills in videos missing from today's data, and validated again to 0.0000% difference.
 
 The pattern, illustrative rather than production code:
 
 ```sql
--- Cumulative pool: keep everything already tagged, add only new items
+-- Cumulative pool: today's fresh values win;
+-- yesterday's pool fills in only what today's data lacks
 insert overwrite table quality_pool partition (dt = '{{ ds }}')
-select item_id, first_tagged_dt
-from   quality_pool
-where  dt = '{{ yesterday_ds }}'
-union all
-select f.item_id, '{{ ds }}' as first_tagged_dt
-from   daily_flags f
+select t.item_id, t.category_id
+from   daily_items t
 left join quality_pool p
-       on  p.item_id = f.item_id
+       on  p.item_id = t.item_id
        and p.dt = '{{ yesterday_ds }}'
-where  f.dt = '{{ ds }}'
-  and  f.is_quality = 1
-  and  p.item_id is null;  -- anti-join: only items not already in the pool
+where  t.dt = '{{ ds }}'
+  and  (t.is_quality = 1 or p.item_id is not null)  -- qualifies today, or already earned it
+union all
+select p.item_id, p.category_id
+from   quality_pool p
+left join daily_items t
+       on  t.item_id = p.item_id
+       and t.dt = '{{ ds }}'
+where  p.dt = '{{ yesterday_ds }}'
+  and  t.item_id is null;                           -- anti-join: absent from today's data
 ```
+
+## Fix two: remove the second copy
+
+In review, my tech lead raised two things. A job that reads its own previous output is fragile, since one failed run quietly poisons every run after it. He was right, and I treated it as a hard production gate rather than a detail. He also asked a bigger question: why did two APIs need two stores at all?
+
+I took that question to the team that runs the OLAP store, and backend confirmed that every call to both APIs is scoped to a single creator. That made the simpler design viable. I added the badge flag to the table the list already reads and updated its sync, so the list API returns the badge directly. Two answers can't diverge when they come from one row. My tech lead and I chose this over my validated cumulative job, and the second store is slated for retirement.
+
+<Callout label="The call">
+  The fix I had already built and validated was not the best fix. Patching two copies keeps two copies that can drift. Removing one of them makes the whole class of failure impossible by construction.
+</Callout>
+
+<Flow
+  title="After: one table, one answer"
+  steps={[
+    { label: 'Upstream quality flag' },
+    { label: 'List table carries the badge flag', note: 'one sync, one store', tone: 'signal' },
+    { label: 'List and badge served together' },
+  ]}
+/>
+
+While working through the new design I also found that the list table's partition retention caps history at about six months, which quietly turns "the badge never disappears" into "the badge disappears after six months". Catching that in a table definition, rather than in a creator's complaint six months later, is why I read configuration as carefully as code.
 
 ## Result
 
-Creators had the feature back within the day. The fix at the source validated to 0.0000% difference and recovered 2,993 items in testing, and I aligned product, my tech lead, backend and the OLAP team on a written rollout plan, including a heads-up that the badge's behavior was changing. Once it rolls out, the failure class is gone instead of patched.
+Creators had the feature back within the day. The deeper fix came out of an explicit product decision rather than a guess, and product got a formal heads-up that the badge's behavior was changing, so nobody discovered it from a dashboard. My own validation caught my own bug before any creator saw it, which is the reason I insist on it.
+
+**Status:** the one-table design is agreed and was scheduled with backend; it isn't confirmed live yet, and the six-month retention cap is still open.

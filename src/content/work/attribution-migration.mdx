@@ -1,25 +1,26 @@
 ---
-title: Moving 18 revenue metrics to a new attribution model in three regions
-summary: I led data engineering delivery for three of the four tables in a migration that changed how revenue is attributed, with 12 months of history rebuilt in every region and no inconsistent page at launch.
+title: 'Re-attributing seller revenue: 18 metrics, 3 regions, 12 months rebuilt'
+summary: The business changed how revenue is credited to content. I took on three times my assigned scope, merged two drifting regional codebases into one, and rebuilt 36 region-months of history behind row-level validation, fixing three correctness bugs before any seller saw a number.
 org: TikTok
 order: 1
 featured: true
 headline:
   value: '18'
-  label: metrics migrated, with 12 months rebuilt in each of 3 regions
+  label: new metrics across three attribution tiers, with 12 months rebuilt in each of 3 regions
 figures:
-  - value: '18'
-    label: new metric definitions
+  - value: '3×'
+    label: my assigned scope, including the shared logic
+  - value: '126'
+    label: metric bindings registered
+  - value: '36'
+    label: region-months rebuilt and diffed row by row
   - value: '3'
-    label: regions on one codebase
-  - value: '12 months'
-    label: of history rebuilt per region
-  - value: '3'
-    label: defects caught before launch
+    label: correctness bugs caught before launch
 tags:
   - Multi-step ETL
   - Canonical datasets
   - Metric definitions
+  - Contract-first delivery
   - Row-level validation
   - Backfills
   - Documentation
@@ -30,20 +31,22 @@ import Callout from '../../components/viz/Callout.astro';
 
 ## What was at stake
 
-The analytics products I work on show sellers how much revenue their content drives, and sellers use those numbers to decide where to spend. The business was moving to a new attribution model, one that separates a direct sale from the influence content had earlier in the buyer's journey. On top of that, different pages had been showing different totals for the same thing.
+Sellers use these analytics pages to decide where to put their money, so the revenue number on them is the product. The business was moving to a new attribution model that separates a direct sale from the influence content had earlier in the buyer's journey. On top of that, different pages were already showing different totals for the same thing.
 
-If the migration went wrong, sellers in three regions would be making decisions on wrong numbers, across a full year of history.
+Get the migration wrong and sellers in three regions make spending decisions on wrong numbers across a full year of history, and nobody finds out until a seller does.
 
 ## What I owned
 
-Four core tables had to move. I was assigned one. The team was stretched and the integration date had no buffer, so I took three of the four, including the logic they shared.
+I was brought in to deliver one table. The team was stretched and the integration date had no buffer, so I took ownership of three core tables instead, including the logic they share, and the registration of all 18 new metrics across three attribution tiers.
+
+The business defined the attribution model. My job was to make it true in the data, in three regions, for twelve months back.
 
 ## Decisions that mattered
 
-**One codebase for every region.** Each region had its own pipeline, and that is exactly how one metric ends up computed two different ways. I merged them so a metric can only be defined once.
+**Merge the codebases while I was already in the code.** The three regions ran on two separate regional codebases, and they had already drifted. That is exactly how one metric ends up computed two different ways. Merging them mid-migration was more work that month, but it is the only time it is cheap. Now a metric changes once, not twice-and-hopefully-identically.
 
 <Flow
-  title="Before: one pipeline per region"
+  title="Before: two regional codebases"
   steps={[
     { label: 'Raw event logs' },
     { label: 'Region-specific logic', tone: 'muted' },
@@ -61,38 +64,52 @@ Four core tables had to move. I was assigned one. The team was stretched and the
   ]}
 />
 
-**Registered the metrics before the data existed.** I pre-registered all 18 metrics in the metric registry before any data existed. Backend engineers could build their APIs against the definitions while I built the pipelines underneath, so the two streams of work ran in parallel instead of in sequence. That's how the date held.
+**Ship the contract before the data.** Backend couldn't build APIs against metrics that didn't exist yet, and the tables were due the same day as joint debugging. Instead of racing that dependency, I broke it: I registered all 18 metrics and added the new fields with empty values up front, so backend built against a real contract while I built the pipelines underneath. A sequential handoff became parallel work.
 
-**Kept validation, even with no buffer.** Every region got row-level diffs against the old output and a full 12-month backfill before sign-off.
+<Flow
+  title="The critical path, compressed"
+  steps={[
+    { label: 'Metric contract registered', note: '18 metrics, empty values', tone: 'signal' },
+    { label: 'APIs and pipelines', note: 'built in parallel' },
+    { label: 'Serving-layer sync' },
+    { label: 'Backfill and row-level diff', note: 'per region' },
+    { label: 'Launch on the program date' },
+  ]}
+/>
+
+**Estimate from measurement, not hope.** The backfills ran for days. I reported progress from measured throughput, so the program planned around real ETAs instead of a number someone guessed.
 
 <Callout label="The call">
-  Cutting validation was the obvious way to make the date. I kept row-level diffs and full backfills for every region, and that discipline is what made the bugs below cheap to find instead of expensive to explain.
+  Cutting validation was the obvious way to make the date. I kept row-level diffs and a full 12-month backfill for every region. If something had to give, backfill depth goes before validation: partial history with correct numbers is recoverable, full history with wrong numbers is not.
 </Callout>
 
 <Flow
   title="Gates every region passed before launch"
   steps={[
     { label: 'New pipeline output' },
-    { label: 'Row-level diff', note: 'per region, against the old tables', tone: 'signal' },
+    { label: 'Row-level diff', note: 'against the old tables', tone: 'signal' },
     { label: '12-month backfill', note: 'per region' },
     { label: 'Sign-off' },
   ]}
 />
 
-## What validation caught before launch
+## What the validation phase caught
 
-- A revenue discrepancy a reviewer raised. It traced cleanly to a single filter applied on the wrong attribution path.
-- A join that fanned out and quietly multiplied totals.
-- A distinct count computed at the wrong grain.
+- **A filter applied at the wrong scope.** QA flagged a revenue discrepancy, and I traced it to a content-type filter that belonged on one attribution path but was applied globally, so every row on that path was being silently excluded. I confirmed the intended semantics with the warehouse lead before touching it, then shipped a narrow fix.
+- **A join that fanned out** and quietly multiplied totals.
+- **A distinct count at the wrong grain.**
 
-All three were fixed before launch.
+None of the three would have failed a job. All three would have shipped wrong numbers to sellers. The kind of guard that catches the second one, as an illustrative pattern rather than production code:
 
-## Running the backfills
-
-The backfills ran for days. I measured throughput as they went, so the program had real ETAs to plan around instead of guesses.
+```sql
+-- Grain guard: enriching a fact with dimensions must not change its row count
+select (select count(*) from attributed_base
+        where dt = '{{ ds }}') as rows_before_join,
+       (select count(*) from attributed_enriched
+        where dt = '{{ ds }}') as rows_after_join;
+-- the run fails if the two counts differ
+```
 
 ## Result
 
-Every page in all three regions reports revenue on the new model, with 12 months of consistent history behind it, and the complaints about pages disagreeing with each other stopped.
-
-**Scope, plainly:** I led the data engineering delivery for three of the four tables. I didn't define the attribution model itself.
+The migration launched on the program date. Every video analytics page in all three regions reports revenue on the new model, with 12 months of consistent history behind it, and the complaints about pages disagreeing with each other stopped.

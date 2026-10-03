@@ -13,6 +13,10 @@ import Contact from '../components/Contact.astro';
 import PostList from '../components/PostList.astro';
 import Impact from '../components/Impact.astro';
 import { hero, site } from '../data/profile';
+
+// The headline renders as two lines: up to and including the first period, then the rest.
+const cut = hero.headline.indexOf('. ');
+const headlineLines = cut > 0 ? [hero.headline.slice(0, cut + 1), hero.headline.slice(cut + 2)] : [hero.headline];
 import { getCaseStudies, getProjects, getPosts } from '../lib/content';
 import { url, absoluteUrl } from '../lib/url';
 
@@ -44,9 +48,11 @@ const jsonLd = {
       <div class="hero-grid">
         <div class="hero-main">
           <p class="hero-kicker load-in" style="--d: 0.05s">
-            Hi, I’m Sai Sarvade, <Typewriter roles={hero.roles} />
+            Hi, I’m <span class="hero-name">Sai Sarvade</span>, <Typewriter roles={hero.roles} />
           </p>
-          <h1 id="hero-title" class="load-in" style="--d: 0.15s">{hero.headline}</h1>
+          <h1 id="hero-title" class="load-in" style="--d: 0.15s">
+            {headlineLines.map((line, i) => <span class:list={['h1-line', i === 1 && 'h1-accent']}>{line} </span>)}
+          </h1>
           <p class="hero-intro load-in" style="--d: 0.25s">{hero.intro}</p>
           <div class="hero-actions load-in" style="--d: 0.35s">
             <a class="btn btn-primary" href="#work">See selected work</a>
@@ -125,7 +131,7 @@ const jsonLd = {
     <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="approach-title">Approach</h2>
-        <p>Four habits behind the work above. Each comes with the pattern it boils down to; the snippets are illustrative, not production code.</p>
+        <p>The habits behind the work above. Some come with the pattern they boil down to; the snippets are illustrative, not production code.</p>
       </div>
       <Approach />
     </div>
@@ -193,6 +199,37 @@ const jsonLd = {
     }
   }
 
+  /* The name: a slow, seamless spectrum. Static under reduced motion. */
+  .hero-name {
+    color: var(--text);
+    font-weight: 700;
+    background-image: linear-gradient(90deg, var(--spectrum));
+    background-size: 200% 100%;
+    background-repeat: repeat-x;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-name {
+      animation: spectrum-flow 9s linear infinite;
+    }
+  }
+
+  @keyframes spectrum-flow {
+    to {
+      background-position: 200% 0;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .hero-name {
+      background: none;
+      -webkit-text-fill-color: CanvasText;
+    }
+  }
+
   @media (prefers-reduced-motion: no-preference) {
     .load-in {
       animation: load-in 0.7s ease both;
@@ -227,12 +264,21 @@ const jsonLd = {
   }
 
   .hero h1 {
-    max-width: 15ch;
+    max-width: 20ch;
     font-size: var(--text-hero);
     font-stretch: 125%;
     font-weight: 760;
     letter-spacing: -0.03em;
     line-height: 1.02;
+  }
+
+  .h1-line {
+    display: block;
+    text-wrap: balance;
+  }
+
+  .h1-accent {
+    color: var(--signal);
   }
 
   .hero-intro {

@@ -1,0 +1,51 @@
+---
+title: A serverless S3 data lake with GDPR and CCPA controls built in
+summary: I built a serverless data lake on S3, moved 15 TB into it with AWS DMS, and cataloged it through Glue Catalog and Lake Formation with the access controls GDPR and CCPA require, so governance lives in the platform rather than in a policy document.
+org: Delta Air Lines
+order: 13
+headline:
+  value: '15 TB'
+  label: migrated into a governed, serverless S3 data lake
+figures:
+  - value: '15 TB'
+    label: moved with AWS DMS
+  - value: 'GDPR + CCPA'
+    label: access controls in Lake Formation
+tags:
+  - Amazon S3
+  - AWS DMS
+  - AWS Glue Data Catalog
+  - AWS Lake Formation
+  - Data governance
+  - Serverless
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+Customer data carries privacy obligations under GDPR and CCPA, and a data lake is where those obligations are easiest to lose track of: many datasets, many consumers, one storage layer.
+
+## What I built
+
+A serverless data lake on S3. I moved 15 TB into it with AWS Database Migration Service, cataloged it in the Glue Data Catalog so it is discoverable and queryable, and governed it with Lake Formation, applying the access controls GDPR and CCPA require.
+
+<Flow
+  title="The lake"
+  steps={[
+    { label: 'Source databases' },
+    { label: 'AWS DMS', note: '15 TB moved' },
+    { label: 'Amazon S3', note: 'serverless storage', tone: 'signal' },
+    { label: 'Glue Data Catalog', note: 'discoverable, queryable' },
+    { label: 'Lake Formation', note: 'GDPR and CCPA access controls', tone: 'signal' },
+  ]}
+/>
+
+<Callout label="The principle">
+  Governance is a property of the platform, not a policy document. Putting the access controls in the catalog layer means every consumer that queries through the catalog inherits them.
+</Callout>
+
+## Result
+
+15 TB landed in a serverless lake with a catalog people can find data in and privacy controls enforced by the platform itself.

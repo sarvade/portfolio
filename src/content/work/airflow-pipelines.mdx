@@ -1,14 +1,16 @@
 ---
-title: Faster Airflow pipelines that are safe to rerun
-summary: I designed and operated production Airflow pipelines integrating vendor APIs and legacy systems into S3 and Teradata.
+title: 3× faster Airflow pipelines that are safe to rerun
+summary: I designed and operated production Airflow pipelines that bring vendor APIs and legacy systems into S3 and Teradata, cut their runtime from 4.5 hours to 1.5, and held accuracy at 99.9% with idempotent DAGs and reconciliation checks.
 org: Delta Air Lines
-order: 8
+order: 12
 headline:
-  value: '65%'
-  label: shorter ETL runtime, 4.5 hours down to 1.5
+  value: '3×'
+  label: faster ETL, 4.5 hours down to 1.5, at 99.9% accuracy
 figures:
   - value: '4.5h → 1.5h'
     label: ETL runtime
+  - value: '3 hours'
+    label: back on every run
   - value: '99.9%'
     label: accuracy
 tags:
@@ -17,20 +19,22 @@ tags:
   - Teradata
   - Idempotent DAGs
   - Reconciliation
+  - Vendor API integration
 ---
 
 import Flow from '../../components/viz/Flow.astro';
 import Compare from '../../components/viz/Compare.astro';
+import Callout from '../../components/viz/Callout.astro';
 
-## Context
+## What was at stake
 
-Data from vendor APIs and legacy systems had to land in S3 and Teradata.
+Data from vendor APIs and legacy systems had to land in S3 and Teradata, every run, correctly. Vendor APIs time out and legacy systems hiccup, so retries and backfills aren't edge cases. They are the normal week.
 
 ## What I did
 
 - Designed and operated the production Airflow pipelines that integrate those sources.
-- Made the DAGs idempotent, so rerunning a task gives the same result.
-- Added reconciliation checks to confirm the data that landed matches the source.
+- Made the DAGs idempotent, so rerunning a task replaces its output instead of duplicating it.
+- Added reconciliation checks that confirm the data that landed matches the source.
 
 <Flow
   title="The pipeline"
@@ -42,6 +46,10 @@ Data from vendor APIs and legacy systems had to land in S3 and Teradata.
   ]}
 />
 
+<Callout label="The principle">
+  A pipeline you are afraid to rerun is a pipeline you can't operate. Idempotency turns a failed night into a retry instead of an incident.
+</Callout>
+
 ## Result
 
 <Compare
@@ -50,7 +58,7 @@ Data from vendor APIs and legacy systems had to land in S3 and Teradata.
     { label: 'Before', value: 4.5, display: '4.5 h', tone: 'before' },
     { label: 'After', value: 1.5, display: '1.5 h', tone: 'after' },
   ]}
-  caption="Linear scale. 65% shorter, with accuracy held at 99.9%."
+  caption="Linear scale. Three times faster, with accuracy held at 99.9%."
 />
 
-ETL runtime dropped 65%, from 4.5 hours to 1.5, while accuracy held at 99.9%.
+ETL runtime dropped from 4.5 hours to 1.5, three times faster and three hours back on every run, while accuracy held at 99.9%.

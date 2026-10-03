@@ -9,7 +9,7 @@ import { pipeline as p } from '../data/profile';
 */
 
 const title = 'Diagram of my data pipelines at TikTok';
-const desc = `${p.source.label} (${p.source.note}) pass through ${p.checks.label.toLowerCase()} (${p.checks.note.toLowerCase()}) into ${p.canonical.label.toLowerCase()}, then ${p.metrics.label.toLowerCase()} (${p.metrics.note}). These feed ${p.outputs.join(', ').toLowerCase()}, reaching ${p.reach}. A record that fails a check stops at validation and raises an alert.`;
+const desc = `${p.source.label} (${p.source.note}) pass through ${p.checks.label.toLowerCase()} (${p.checks.note.toLowerCase()}) into ${p.canonical.label.toLowerCase()}, then ${p.metrics.label.toLowerCase()} (${p.metrics.note}). These feed ${p.outputs.join(', ').toLowerCase()}, reaching ${p.reach}. A failing check blocks the release and raises an alert.`;
 
 // Wide layout geometry
 const W = { nodeW: 170, nodeH: 64, y: 108, cy: 140, xs: [0, 240, 480, 720], outX: 960, outW: 170, outH: 44, outCy: [50, 140, 230] };

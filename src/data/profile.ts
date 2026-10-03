@@ -21,9 +21,19 @@ export const site = {
 };
 
 export const hero = {
-  headline: 'I turn raw logs into numbers people can trust.',
+  /** Rendered as two lines in the hero: the part before the first period, then the rest. */
+  headline: 'Raw logs in. Trusted numbers out.',
   /** Typed one after another after "Hi, I’m Sai Sarvade,". Keep each short (under 26 characters). */
-  roles: ['a data engineer', 'an AI builder', 'a creator', 'a pipeline builder', 'a data quality advocate'],
+  roles: [
+    'a data engineer',
+    'an AI builder',
+    'an ETL developer',
+    'a pipeline builder',
+    'a streaming engineer',
+    'a coder',
+    'a creator',
+    'a data quality advocate',
+  ],
   intro:
     'Data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly four years building data pipelines at Delta Air Lines.',
   /**
@@ -46,7 +56,7 @@ export const glance = [
 /** Labels and notes for the pipeline diagram in the hero. Keep notes short (about 22 characters). */
 export const pipeline = {
   source: { label: 'Raw event logs', note: '20 TB+ a day' },
-  checks: { label: 'Validation', note: 'Freshness and quality' },
+  checks: { label: 'Validation', note: 'Row-level diffs' },
   canonical: { label: 'Canonical datasets', note: 'Multi-step ETL' },
   metrics: { label: 'Metric definitions', note: '18 new, 12 months rebuilt' },
   outputs: ['Dashboards', 'Self-serve analysis', 'ML features'],
@@ -84,14 +94,14 @@ export const experience: Job[] = [
     context: 'Self-serve analytics products used by 15M+ people across 19 countries.',
     highlights: [
       {
-        text: 'Led data engineering delivery for 3 of 4 tables in a three-region attribution migration: merged regional pipelines into one codebase, shipped 18 metrics with 12 months of rebuilt history, and caught a revenue discrepancy, a join fan-out and a wrong-grain count before launch.',
+        text: 'Took on three times my assigned scope in a three-region revenue-attribution migration: three core tables and the logic they share, two drifting regional codebases merged into one, 18 new metrics and 126 metric bindings with 12 months of rebuilt history per region, and three correctness bugs fixed before launch.',
         work: 'attribution-migration',
       },
       {
         text: 'Own the multi-step ETL from raw event logs to the canonical datasets the company reports on, at 20 TB a day, and set the data integrity standards and delivery SLAs the team adopted.',
       },
       {
-        text: 'Cut rows scanned per call 40–80× on a high-traffic API by fixing an index the OLAP engine had silently stopped using, then raised its rate limit from 150 to 200 QPS with evidence.',
+        text: 'Took a creator-facing API from ~70% success at peak back to healthy by getting the OLAP engine to use an index it had silently stopped using: 40–80× fewer rows scanned per call, and only then a rate limit raised from 150 to 200 QPS.',
         work: 'olap-api-cost',
       },
       {
@@ -99,11 +109,20 @@ export const experience: Job[] = [
         work: 'realtime-rankings',
       },
       {
-        text: 'Restored a creator-facing feature the same day during a P1, then fixed the root cause in the shared source table; validation caught 67,565 bad rows in my own first fix before it shipped.',
+        text: 'Restored a creator-facing feature the same day during a P1, then traced two disagreeing APIs to one false assumption. My validation caught 67,565 corrupted rows in my own first fix before it shipped, and the design we chose serves both from one table, so once it rolls out they can’t drift.',
         work: 'fix-at-the-source',
       },
       {
-        text: 'Built the feature and evaluation datasets and the serving layer for a production ML model. Mentor junior engineers on modeling and code review.',
+        text: 'Disproved a “filter bug” escalation layer by layer, then isolated a real ~8% realtime tagging gap (19 of 236 items) to a single job while proving the offline table right on all 236.',
+        work: 'realtime-dq-gap',
+      },
+      {
+        text: 'Moved regulated data across a data-residency boundary with zero compliance findings, replaced ad-hoc analyst requests with a self-serve dataset, and cut investigation turnaround from about 3 days to 1 hour.',
+        work: 'cross-border-transfer',
+      },
+      {
+        text: 'Built the A/B measurement layer for a new multimodal AI model in my first two months, and the feature and evaluation datasets a production model consumed. Encoded on-call know-how into three reusable AI assistant skills, and walk teammates through query plans and debugging patterns.',
+        work: 'experiment-data-layer',
       },
     ],
   },
@@ -116,7 +135,7 @@ export const experience: Job[] = [
     end: 'May 2025',
     highlights: [
       {
-        text: 'Architected the elite loyalty platform on AWS (Spark and Hive over Iceberg on S3) and moved batch jobs to streaming: 1.6M+ elite travelers see miles within minutes of landing instead of the next morning, with 45% better query performance.',
+        text: 'Architected the elite loyalty platform on AWS (Spark and Hive over Iceberg on S3) and moved batch jobs to streaming across 750+ flights a day: 1.6M+ elite travelers see miles within minutes of landing instead of the next morning, with 45% better query performance. Owned its encryption, IAM and CI/CD.',
         work: 'loyalty-platform',
       },
       {
@@ -124,18 +143,19 @@ export const experience: Job[] = [
         work: 'informatica-to-glue',
       },
       {
-        text: 'Built event-driven ingestion on Kinesis, Lambda, and SNS for 3M+ transactions a day at 99.9% uptime, cutting end-to-end latency from 2 hours to under 5 minutes.',
+        text: 'Built event-driven ingestion on Kinesis, Lambda, and SNS for 3M+ transactions a day at 99.9% uptime, cutting end-to-end latency from 2 hours to under 5 minutes (more than 24× faster).',
         work: 'event-driven-ingestion',
       },
       {
-        text: 'Designed and ran production Airflow pipelines from vendor APIs and legacy systems into S3 and Teradata, cutting ETL runtime from 4.5 hours to 1.5 at 99.9% accuracy with idempotent DAGs and reconciliation checks.',
+        text: 'Designed and ran production Airflow pipelines from vendor APIs and legacy systems into S3 and Teradata, making ETL 3× faster (4.5 hours to 1.5) at 99.9% accuracy with idempotent DAGs and reconciliation checks.',
         work: 'airflow-pipelines',
       },
       {
-        text: 'Modeled the loyalty domain in Teradata for 500K+ customers and built the segmentation reporting and dashboards that marketing and operations ran campaigns from.',
+        text: 'Modeled the loyalty domain in Teradata and built the segmentation reporting and dashboards, covering 500K+ customers, that marketing and operations ran campaigns from.',
       },
       {
-        text: 'Built a serverless S3 data lake: moved 15 TB with AWS DMS and cataloged it in Glue Catalog and Lake Formation with the access controls GDPR and CCPA require. Owned encryption, IAM and CI/CD for the loyalty platform.',
+        text: 'Built a serverless S3 data lake: moved 15 TB with AWS DMS and cataloged it in Glue Catalog and Lake Formation with the access controls GDPR and CCPA require.',
+        work: 's3-data-lake',
       },
     ],
   },
@@ -145,10 +165,10 @@ export const experience: Job[] = [
 export const impact = [
   { value: '15M+', count: 15, prefix: '', suffix: 'M+', label: 'people use the analytics products I build for' },
   { value: '20 TB', count: 20, prefix: '', suffix: ' TB', label: 'of data processed a day' },
-  { value: '1.5B+', count: 1.5, prefix: '', suffix: 'B+', label: 'events ranked in a real-time Flink job' },
-  { value: '40–80×', label: 'fewer rows scanned per call after an OLAP index fix' },
+  { value: '1.5B+', count: 1.5, prefix: '', suffix: 'B+', label: 'events aggregated into hourly rankings in Flink' },
+  { value: '40–80×', label: 'fewer rows scanned per call after an OLAP query fix' },
   { value: '1.6M+', count: 1.6, prefix: '', suffix: 'M+', label: 'elite travelers on a loyalty platform I architected' },
-  { value: '~$850K', count: 850, prefix: '~$', suffix: 'K', label: 'a year saved by retiring legacy ETL licensing' },
+  { value: '~$850K', count: 850, prefix: '~$', suffix: 'K', label: 'a year saved by cutting legacy ETL licensing 65%' },
 ];
 
 export type Principle = {
@@ -165,7 +185,7 @@ export type Principle = {
 export const principles: Principle[] = [
   {
     title: 'Validate before anyone sees it',
-    body: 'Totals can match while rows are wrong. I diff old and new outputs row by row, per region, before anything ships. That habit caught a revenue discrepancy, a join fan-out and a wrong-grain count before a launch, and it caught 67,565 bad rows in my own first fix.',
+    body: 'Totals can match while rows are wrong. I diff old and new outputs row by row, per region, before anything ships. Before one launch, that habit let me trace a QA-flagged revenue discrepancy to a single misscoped filter and catch a join fan-out and a wrong-grain count; later it caught 67,565 bad rows in my own first fix.',
     proof: 'attribution-migration',
     lang: 'sql',
     code: `-- Row-level diff: every key lands in exactly one bucket
@@ -173,6 +193,7 @@ select case
          when o.id is null then 'only_in_new'
          when n.id is null then 'only_in_old'
          when abs(o.revenue - n.revenue) > 0.005
+           or (o.revenue is null) <> (n.revenue is null)
            then 'value_changed'
          else 'match'
        end      as bucket,
@@ -197,7 +218,7 @@ where  dt = '{{ ds }}';`,
   },
   {
     title: 'Fix cost before buying capacity',
-    body: 'When an API is failing, raising its limit is the reflex. I read the query plan first. An index the engine had silently stopped using was making every call scan 8.24M rows; fixing it cut that 40–80×, and only then did the limit go up.',
+    body: 'When an API is failing, raising its limit is the reflex. I read the query plan first. The engine had silently stopped using an index, so every call scanned 8.24M rows; a one-line hint put the index back to work, cut that 40–80×, and only then did the limit go up.',
     proof: 'olap-api-cost',
   },
   {
@@ -214,7 +235,7 @@ from table(
   tumble(table events,
          descriptor(event_time),
          interval '5' minutes))
-group by item_id, window_end;`,
+group by item_id, window_start, window_end;`,
   },
   {
     title: 'One definition per metric',
@@ -300,8 +321,20 @@ export const skills: SkillGroup[] = [
       { name: 'Snowflake' },
       { name: 'BigQuery' },
       { name: 'Teradata', work: 'airflow-pipelines' },
+      { name: 'AWS Lake Formation', work: 's3-data-lake' },
+      { name: 'AWS DMS', work: 's3-data-lake' },
       { name: 'PostgreSQL' },
       { name: 'MySQL' },
+    ],
+  },
+  {
+    group: 'AI and ML',
+    short: 'AI and ML',
+    items: [
+      { name: 'A/B measurement for ML models', work: 'experiment-data-layer' },
+      { name: 'Feature and evaluation datasets' },
+      { name: 'AI assistant skills (LLM tooling)', work: 'ai-oncall-skills' },
+      { name: 'Prompt engineering', work: 'ai-oncall-skills' },
     ],
   },
   {
@@ -313,7 +346,7 @@ export const skills: SkillGroup[] = [
       { name: 'Power BI' },
       { name: 'Streamlit' },
       { name: 'Metric definitions', work: 'attribution-migration' },
-      { name: 'Self-serve data products' },
+      { name: 'Self-serve data products', work: 'cross-border-transfer' },
     ],
   },
   {
@@ -325,6 +358,8 @@ export const skills: SkillGroup[] = [
       { name: 'Idempotent pipelines', work: 'airflow-pipelines' },
       { name: 'Reconciliation', work: 'airflow-pipelines' },
       { name: 'Root cause analysis', work: 'fix-at-the-source' },
+      { name: 'Realtime vs offline reconciliation', work: 'realtime-dq-gap' },
+      { name: 'Data residency and compliance', work: 'cross-border-transfer' },
       { name: 'Query plans and indexing', work: 'olap-api-cost' },
       { name: 'Data SLAs' },
       { name: 'Freshness monitoring' },

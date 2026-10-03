@@ -1,0 +1,54 @@
+---
+title: Turning on-call know-how into reusable AI skills
+summary: Triage quality depended on whether I happened to be awake, on a team spread across three timezones. I encoded the stack knowledge, escalation decision trees and message templates into three reusable AI assistant skills, so any engineer triages the same way.
+org: TikTok
+order: 8
+headline:
+  value: '3'
+  label: AI skills that make on-call triage repeatable by anyone on the team
+figures:
+  - value: '3'
+    label: reusable AI assistant skills
+  - value: '2'
+    label: audiences every answer is written for
+  - value: '3'
+    label: timezones the team spans
+tags:
+  - LLM tooling
+  - Prompt engineering
+  - On-call triage
+  - Data-quality investigation
+  - Documentation
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+On-call tickets for two products kept arriving in the same shape: "these two numbers don't match." The knowledge to triage them lived in my head, so the quality of triage depended on whether I was awake, on a team spread across three timezones.
+
+## What I built
+
+Three reusable AI assistant skills, each encoding how our stack actually behaves, when to escalate and to whom, and message templates for two audiences: a short engineer-to-engineer version and a plain-language version for product managers.
+
+<Flow
+  title="Three skills, one triage standard"
+  steps={[
+    { label: 'Pipeline debugging', note: 'stack knowledge, escalation paths', tone: 'signal' },
+    { label: 'SQL data tasks' },
+    { label: 'Data-quality investigation', note: 'bug, or correct data?' },
+  ]}
+/>
+
+<Callout label="The design choice that matters">
+  Each skill forces one distinction before anything else: is this a data bug, or correct data that needs a product decision? Most of on-call is telling those two apart.
+</Callout>
+
+A real example: a product showing up on a video it was never bound to looked like a join defect. It was indirect affiliate tracking working as designed. That is a product call, not an engineering fix, and a triage flow that can't tell the difference sends engineers chasing bugs that aren't there.
+
+They grow as the team learns. When I helped a colleague past an OLAP scan limit, the [diagnosis pattern](../olap-api-cost/) went into the debugging skill so the next person doesn't need either of us.
+
+## Result
+
+Ticket handling became consistent regardless of who picks it up, and new teammates ramp without shadowing me. The measure I care about: the things I wrote get used in threads I'm not in.

@@ -1,0 +1,94 @@
+---
+title: The bug that wasn’t, and the 8% one that was
+summary: An escalation said a filter was broken. I disproved it layer by layer and closed it with receipts, then scaled the check to all 236 flagged items and isolated a real ~8% tagging gap to a single realtime job, while proving the offline table right on every item.
+org: TikTok
+order: 5
+headline:
+  value: '19 / 236'
+  label: realtime mismatches isolated to one job; offline was right on all 236
+figures:
+  - value: '236'
+    label: flagged items checked in both pipelines
+  - value: '46M+'
+    label: rows in the daily partition, so not staleness
+  - value: '0 / 236'
+    label: offline mismatches
+  - value: '19 / 236'
+    label: realtime mismatches (~8%)
+tags:
+  - Root cause analysis
+  - Apache Flink
+  - Realtime vs offline reconciliation
+  - Ground-truth validation
+  - Lineage tracing
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Compare from '../../components/viz/Compare.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+## What was at stake
+
+Creators were seeing videos in their list with zero revenue and zero views, and leadership wanted to know why. The story everyone had already settled on was a broken filter for a new content type. Several people were treating it as a defect with a fix to find.
+
+If that story was wrong, the fix would ship, change nothing, and the real problem would stay buried under a closed ticket.
+
+## Eliminate layer by layer
+
+I worked it layer by layer, from the number the creator sees backwards, looking for the layer where it changes.
+
+<Flow
+  title="Walking the lineage backwards"
+  steps={[
+    { label: 'Backend', note: 'passes the filter correctly' },
+    { label: 'Warehouse query', note: 'applies it correctly' },
+    { label: 'Offline daily partition', note: '46M+ rows, fully populated' },
+    { label: 'Realtime table', note: 'disagrees with offline', tone: 'caution' },
+  ]}
+/>
+
+A fully populated 46-million-row partition ruled out staleness, so any gap had to be item-specific. That killed the filter theory.
+
+## Close what isn't a bug, with receipts
+
+For the three items behind the escalation, I read the realtime Flink job instead of assuming. The flag is a raw passthrough from an upstream event stream another team owns, defaulted to zero when the event hasn't carried a value yet. That is a plausible false negative, so I waited 24 hours to rule out lag, then went to the ground-truth dimension table. All three genuinely were not the content type the ticket assumed. I closed that thread as not-a-bug, with the full evidence chain attached.
+
+<Callout label="The call">
+  Closing a ticket without a fix only works with evidence. The full chain went into the thread, and the investigation moved to where the data actually disagreed.
+</Callout>
+
+## Then find the one that is
+
+I scaled the check from 3 items to all 236 that had been flagged, in both pipelines.
+
+<Compare
+  title="Flagged items carrying the wrong content-type flag"
+  max={236}
+  rows={[
+    { label: 'Offline', value: 0, display: '0 of 236', tone: 'after' },
+    { label: 'Realtime', value: 19, display: '19 of 236 (~8%)', tone: 'before' },
+  ]}
+  caption="Bars are drawn against all 236 items. Offline was correct on every one; the gap lives in the realtime path."
+/>
+
+That isolated a real gap to the realtime pipeline, and specifically to my own realtime transform job rather than the upstream team's stream. The check itself is simple, which is why it is worth running before anyone writes a fix. As an illustrative pattern rather than production code:
+
+```sql
+-- Same items, both pipelines, one expected value
+select count(*) as items,
+       sum(case when coalesce(o.flag, -1) <> f.expected
+                then 1 else 0 end) as offline_wrong,
+       sum(case when coalesce(r.flag, -1) <> f.expected
+                then 1 else 0 end) as realtime_wrong
+from      flagged_items f
+left join offline_daily o
+       on o.item_id = f.item_id and o.dt = '{{ ds }}'
+left join realtime_view r
+       on r.item_id = f.item_id;
+```
+
+One open question could still reframe all of it: did the 236 items come from the live product page, or from a separate dashboard? If it was the dashboard, the investigation was scoped to the wrong surface, and the answer changes what "fixed" even means. It stays on the list until it is answered.
+
+## Where it stands
+
+The team stopped chasing a filter fix that would have changed nothing. The real gap is scoped to one job, and I set up a working group with the realtime, warehouse and product owners to close it. Once it closes, the next number here is the post-fix mismatch rate.
