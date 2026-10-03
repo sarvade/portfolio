@@ -26,13 +26,14 @@ export const hero = {
   /** Typed one after another after "Hi, I’m Sai Sarvade,". Keep each short (under 26 characters). */
   roles: [
     'a data engineer',
+    'an analytics engineer',
+    'a big data engineer',
     'an AI builder',
     'an ETL developer',
-    'a pipeline builder',
     'a streaming engineer',
+    'a data quality advocate',
     'a coder',
     'a creator',
-    'a data quality advocate',
   ],
   intro:
     'Data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly four years building data pipelines at Delta Air Lines.',
@@ -161,13 +162,26 @@ export const experience: Job[] = [
   },
 ];
 
-/** The impact strip under the hero. `count` is the number animated on first view (optional). */
+/**
+ * "Scale I work at": context, shown as a compact row under the hero.
+ * Every figure comes from the résumé or interview notes; ~7 PB a year is 20 TB a day × 365.
+ */
+export const scale = [
+  { value: '15M+', count: 15, suffix: 'M+', label: 'creators and sellers on the analytics products my data feeds' },
+  { value: '19', count: 19, label: 'countries on one global e‑commerce platform' },
+  { value: '4', count: 4, label: 'data regions, each with its own compliance rules' },
+  { value: '~7 PB', count: 7, prefix: '~', suffix: ' PB', label: 'a year through pipelines I own (20 TB+ every day)' },
+  { value: '1.5B+', count: 1.5, suffix: 'B+', label: 'events in one live-commerce stream my Flink jobs aggregated' },
+  { value: '46M+', count: 46, suffix: 'M+', label: 'rows in a single daily partition of one table' },
+];
+
+/** Results: outcomes, each backed by a case study. `count` animates on first view (optional). */
 export const impact = [
-  { value: '15M+', count: 15, prefix: '', suffix: 'M+', label: 'people use the analytics products I build for' },
-  { value: '20 TB', count: 20, prefix: '', suffix: ' TB', label: 'of data processed a day' },
-  { value: '1.5B+', count: 1.5, prefix: '', suffix: 'B+', label: 'events aggregated into hourly rankings in Flink' },
-  { value: '40–80×', label: 'fewer rows scanned per call after an OLAP query fix' },
-  { value: '1.6M+', count: 1.6, prefix: '', suffix: 'M+', label: 'elite travelers on a loyalty platform I architected' },
+  { value: '40–80×', label: 'fewer rows scanned per API call after an OLAP query fix' },
+  { value: '36', count: 36, label: 'region-months of revenue history rebuilt, behind row-level diffs in every region' },
+  { value: '0', label: 'compliance findings moving regulated data across a residency boundary' },
+  { value: '>24×', label: 'faster ingestion: 2 hours to under 5 minutes for 3M+ transactions a day' },
+  { value: '1.6M+', count: 1.6, prefix: '', suffix: 'M+', label: 'elite travelers see miles within minutes on a platform I architected' },
   { value: '~$850K', count: 850, prefix: '~$', suffix: 'K', label: 'a year saved by cutting legacy ETL licensing 65%' },
 ];
 
@@ -271,60 +285,71 @@ export type Skill = {
 
 export type SkillGroup = { group: string; short: string; items: Skill[] };
 
-/** Skill groups (filters) and skills. Only link a skill to a case study that shows it. */
+/**
+ * Skill groups (filters) and skills: the core set, kept short on purpose.
+ * Only link a skill to a case study that shows it.
+ */
 export const skills: SkillGroup[] = [
   {
     group: 'Languages',
     short: 'Languages',
     items: [
-      { name: 'Python (pandas, PySpark)', work: 'informatica-to-glue' },
-      { name: 'SQL' },
-      { name: 'Scala' },
-      { name: 'Bash' },
+      { name: 'SQL', work: 'realtime-dq-gap' },
+      { name: 'Python (PySpark)', work: 'informatica-to-glue' },
     ],
   },
   {
-    group: 'Transformation and modeling',
-    short: 'Modeling',
+    group: 'Batch and streaming',
+    short: 'Batch and streaming',
     items: [
-      { name: 'dbt' },
-      { name: 'Multi-step ETL', work: 'attribution-migration' },
-      { name: 'Canonical datasets', work: 'attribution-migration' },
-      { name: 'Dimensional modeling' },
-      { name: 'Semantic and metrics layers' },
-      { name: 'Schema design' },
-    ],
-  },
-  {
-    group: 'Pipelines and streaming',
-    short: 'Pipelines and streaming',
-    items: [
-      { name: 'Apache Flink', work: 'realtime-rankings' },
       { name: 'Apache Spark', work: 'loyalty-platform' },
+      { name: 'Apache Flink', work: 'realtime-rankings' },
       { name: 'Apache Kafka', work: 'loyalty-platform' },
-      { name: 'Amazon Kinesis', work: 'event-driven-ingestion' },
       { name: 'Apache Airflow', work: 'airflow-pipelines' },
       { name: 'Apache Hive', work: 'loyalty-platform' },
-      { name: 'Apache Flume', work: 'loyalty-platform' },
-      { name: 'Trino/Presto' },
-      { name: 'AWS Glue and Lambda', work: 'informatica-to-glue' },
-      { name: 'CI/CD', work: 'informatica-to-glue' },
+      { name: 'Amazon Kinesis', work: 'event-driven-ingestion' },
     ],
   },
   {
-    group: 'Warehouse and storage',
+    group: 'Storage and OLAP',
     short: 'Storage and OLAP',
     items: [
       { name: 'Apache Iceberg on S3', work: 'loyalty-platform' },
       { name: 'Apache Doris', work: 'olap-api-cost' },
       { name: 'ClickHouse', work: 'loyalty-platform' },
-      { name: 'Snowflake' },
-      { name: 'BigQuery' },
       { name: 'Teradata', work: 'airflow-pipelines' },
-      { name: 'AWS Lake Formation', work: 's3-data-lake' },
-      { name: 'AWS DMS', work: 's3-data-lake' },
-      { name: 'PostgreSQL' },
-      { name: 'MySQL' },
+    ],
+  },
+  {
+    group: 'AWS',
+    short: 'AWS',
+    items: [
+      { name: 'AWS Glue', work: 'informatica-to-glue' },
+      { name: 'AWS Lambda', work: 'event-driven-ingestion' },
+      { name: 'Lake Formation and DMS', work: 's3-data-lake' },
+      { name: 'IAM and encryption', work: 'loyalty-platform' },
+    ],
+  },
+  {
+    group: 'Modeling and metrics',
+    short: 'Modeling',
+    items: [
+      { name: 'dbt' },
+      { name: 'Dimensional modeling' },
+      { name: 'Canonical datasets', work: 'attribution-migration' },
+      { name: 'Metric definitions', work: 'attribution-migration' },
+    ],
+  },
+  {
+    group: 'Data quality and reliability',
+    short: 'Data quality',
+    items: [
+      { name: 'Row-level validation', work: 'attribution-migration' },
+      { name: 'Idempotent pipelines and backfills', work: 'airflow-pipelines' },
+      { name: 'Realtime vs offline reconciliation', work: 'realtime-dq-gap' },
+      { name: 'Root cause analysis', work: 'fix-at-the-source' },
+      { name: 'Query plans and indexing', work: 'olap-api-cost' },
+      { name: 'Data residency and compliance', work: 'cross-border-transfer' },
     ],
   },
   {
@@ -332,42 +357,13 @@ export const skills: SkillGroup[] = [
     short: 'AI and ML',
     items: [
       { name: 'A/B measurement for ML models', work: 'experiment-data-layer' },
-      { name: 'Feature and evaluation datasets' },
-      { name: 'AI assistant skills (LLM tooling)', work: 'ai-oncall-skills' },
-      { name: 'Prompt engineering', work: 'ai-oncall-skills' },
-    ],
-  },
-  {
-    group: 'Reporting and self-serve',
-    short: 'Reporting',
-    items: [
-      { name: 'Hex' },
-      { name: 'Tableau' },
-      { name: 'Power BI' },
-      { name: 'Streamlit' },
-      { name: 'Metric definitions', work: 'attribution-migration' },
-      { name: 'Self-serve data products', work: 'cross-border-transfer' },
-    ],
-  },
-  {
-    group: 'Integrity and reliability',
-    short: 'Data quality',
-    items: [
-      { name: 'Row-level validation', work: 'attribution-migration' },
-      { name: 'Backfills', work: 'attribution-migration' },
-      { name: 'Idempotent pipelines', work: 'airflow-pipelines' },
-      { name: 'Reconciliation', work: 'airflow-pipelines' },
-      { name: 'Root cause analysis', work: 'fix-at-the-source' },
-      { name: 'Realtime vs offline reconciliation', work: 'realtime-dq-gap' },
-      { name: 'Data residency and compliance', work: 'cross-border-transfer' },
-      { name: 'Query plans and indexing', work: 'olap-api-cost' },
-      { name: 'Data SLAs' },
-      { name: 'Freshness monitoring' },
-      { name: 'Lineage' },
-      { name: 'Documentation', work: 'attribution-migration' },
+      { name: 'LLM tooling', work: 'ai-oncall-skills' },
     ],
   },
 ];
+
+/** One quiet line under the skills: tools used, but not the core of the work. */
+export const alsoUsed = ['Scala', 'Trino', 'Snowflake', 'BigQuery', 'PostgreSQL', 'Tableau', 'Power BI'];
 
 export const about = {
   paragraphs: [

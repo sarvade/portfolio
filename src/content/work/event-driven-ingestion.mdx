@@ -55,3 +55,7 @@ I built asynchronous, event-driven ingestion on Kinesis, Lambda and SNS. Transac
 />
 
 End-to-end latency fell from two hours to under five minutes, more than 24 times faster, at 99.9% uptime, for over a billion transactions a year.
+
+## What I’d do differently now
+
+- Treat replay as part of the design, not an add-on: a dead-letter queue and re-drive from the stream turn a bad batch into a replay instead of an incident.

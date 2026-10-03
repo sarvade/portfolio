@@ -28,7 +28,7 @@ npm run preview    # serve the production build
 | Hero pipeline diagram labels | `pipeline` in `src/data/profile.ts` |
 | At-a-glance card, optional "open to roles" line | `glance` and `hero.availability` in `src/data/profile.ts` |
 | Approach section (habits + illustrative snippets) | `principles` in `src/data/profile.ts` |
-| Impact numbers under the hero | `impact` in `src/data/profile.ts` |
+| “Scale I work at” and “Results” bands under the hero | `scale` and `impact` in `src/data/profile.ts` |
 | Typewriter roles | `hero.roles` in `src/data/profile.ts` |
 | Hero headline (two lines, split at the first period) | `hero.headline` in `src/data/profile.ts`, then `scripts/og/og.html` and `python3 scripts/render-images.py` for the link preview |
 | Colors of the animated name | `--spectrum` in `src/styles/global.css` (one list per theme) |
@@ -50,6 +50,10 @@ Case studies are MDX, so they can use the built-in components in `src/components
 - `<Flow steps={[...]} title="..." />`: an architecture flow that stacks vertically on phones. Step `tone` can be `signal`, `caution` or `muted`.
 - `<Compare title="..." rows={[...]} caption="..." />`: before/after bars drawn to one scale, values labeled. Add `scale="log"` for 10×+ gaps, or `max={236}` to draw bars as shares of a whole; a value of 0 draws no bar.
 - `<Callout label="The call">...</Callout>`: highlights the judgment call.
+- `<Architecture title="..." layers={[{ name: 'Source', nodes: [...] }, ...]} checks={{ nodes: [...] }} />`: a layered system diagram (source, compute, storage, serving, or the system's real path) with a band for the checks that guard it. Spans the full article width on case-study pages and stacks on phones.
+- `<Tradeoffs items={[{ question, chose, over, why }]} />`: decisions as a small decision record. Only list alternatives that were really considered.
+
+Case studies end with **What broke, and what changed** (where something did) and **What I’d do differently now**.
 
 ## Add a project or case study
 

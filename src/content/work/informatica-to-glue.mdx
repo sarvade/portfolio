@@ -55,3 +55,7 @@ I led the migration of those 50+ workflows onto AWS Glue (PySpark) and AWS Lambd
 />
 
 Licensing costs dropped 65%, roughly $850K a year, and the saving recurs: licensing stays 65% lower every year the workflows run on Glue and Lambda.
+
+## What I’d do differently now
+
+- Make a row-level diff between old and new outputs the written exit criterion for every migrated workflow, so “done” is a number anyone can check.

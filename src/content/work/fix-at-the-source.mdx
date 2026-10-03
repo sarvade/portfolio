@@ -27,6 +27,8 @@ tags:
 
 import Flow from '../../components/viz/Flow.astro';
 import Callout from '../../components/viz/Callout.astro';
+import Architecture from '../../components/viz/Architecture.astro';
+import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
@@ -70,7 +72,8 @@ left join quality_pool p
        on  p.item_id = t.item_id
        and p.dt = '{{ yesterday_ds }}'
 where  t.dt = '{{ ds }}'
-  and  (t.is_quality = 1 or p.item_id is not null)  -- qualifies today, or already earned it
+  -- qualifies today, or already earned it
+  and  (t.is_quality = 1 or p.item_id is not null)
 union all
 select p.item_id, p.category_id
 from   quality_pool p
@@ -78,7 +81,7 @@ left join daily_items t
        on  t.item_id = p.item_id
        and t.dt = '{{ ds }}'
 where  p.dt = '{{ yesterday_ds }}'
-  and  t.item_id is null;                           -- anti-join: absent from today's data
+  and  t.item_id is null;  -- anti-join: absent today
 ```
 
 ## Fix two: remove the second copy
@@ -91,12 +94,49 @@ I took that question to the team that runs the OLAP store, and backend confirmed
   The fix I had already built and validated was not the best fix. Patching two copies keeps two copies that can drift. Removing one of them makes the whole class of failure impossible by construction.
 </Callout>
 
-<Flow
-  title="After: one table, one answer"
-  steps={[
-    { label: 'Upstream quality flag' },
-    { label: 'List table carries the badge flag', note: 'one sync, one store', tone: 'signal' },
-    { label: 'List and badge served together' },
+<Architecture
+  title="The chosen design: one row answers both questions"
+  layers={[
+    { name: 'Source', nodes: [{ label: 'Upstream quality flag', note: 'scored daily; can flip back', tone: 'caution' }] },
+    {
+      name: 'Compute',
+      nodes: [
+        { label: 'Daily pool job', note: 'unchanged' },
+        { label: 'Sync to the list table', note: 'adds the badge flag', tone: 'signal' },
+      ],
+    },
+    {
+      name: 'Storage',
+      nodes: [
+        { label: 'OLAP list table', note: 'list and badge in one row', tone: 'signal' },
+        { label: 'Key-value badge store', note: 'slated for retirement', tone: 'muted' },
+      ],
+    },
+    { name: 'Serving', nodes: [{ label: 'List API', note: 'list and badge together, once rolled out' }] },
+  ]}
+  checks={{
+    nodes: [
+      { label: 'Product decision', note: 'a badge, once earned, is permanent' },
+      { label: 'Call-site audit', note: 'backend: every call scoped to one creator' },
+      { label: 'Open: partition retention', note: 'about a six-month cap', tone: 'caution' },
+    ],
+  }}
+/>
+
+<Tradeoffs
+  items={[
+    {
+      question: 'Should a badge be permanent, or re-evaluated daily?',
+      chose: 'Ask the product owner (she chose permanent)',
+      over: 'Inferring intent from how the code behaved',
+      why: 'The spec was silent on a badge being taken away. That is a product decision, not an engineering inference.',
+    },
+    {
+      question: 'Where should the fix live?',
+      chose: 'Serve list and badge from one table',
+      over: 'Patching both APIs, or shipping my validated cumulative job',
+      why: 'My tech lead flagged that the cumulative job read its own previous output, so one failed run would poison every run after it, and asked why two stores were needed at all. One table removes the second path, so there is nothing left to drift.',
+    },
   ]}
 />
 
@@ -107,3 +147,14 @@ While working through the new design I also found that the list table's partitio
 Creators had the feature back within the day. The deeper fix came out of an explicit product decision rather than a guess, and product got a formal heads-up that the badge's behavior was changing, so nobody discovered it from a dashboard. My own validation caught my own bug before any creator saw it, which is the reason I insist on it.
 
 **Status:** the one-table design is agreed and was scheduled with backend; it isn't confirmed live yet, and the six-month retention cap is still open.
+
+## What broke, and what changed
+
+- **A single-day filter made late data look like no data.** Any creator whose latest partition landed late dropped out of the feature. The restore widened the filter to every partition up to the date; deduplication came in the follow-up.
+- **My restore introduced duplicate rows.** I disclosed it in the ticket the same day and fixed it. Since then, every “obvious” fix gets a row-count and duplicate check before it ships.
+- **My first durable fix aggregated an attribute that isn’t constant per video,** which corrupted 67,565 rows before validation stopped it. I no longer aggregate a column that varies per key; if it varies, it needs a join, not a `MAX`.
+
+## What I’d do differently now
+
+- Ask the product question the moment the spec goes silent. I spent time defending a trade-off that one question settled.
+- Before writing code to keep two copies in sync, ask whether the second copy needs to exist.

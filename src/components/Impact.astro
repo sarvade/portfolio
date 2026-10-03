@@ -1,33 +1,61 @@
 ---
-import { impact } from '../data/profile';
+import { impact, scale } from '../data/profile';
 /*
-  Impact strip: six numbers from my work, each counted up once when it first
-  scrolls into view. The final values are in the HTML, so they show without JS
-  and with reduced motion.
+  Two bands under the hero:
+  - "Scale I work at": a compact row of context numbers.
+  - "Results": six outcomes, each backed by a case study.
+  Numbers count up once when they first scroll into view. The final values are
+  in the HTML, so they show without JS and with reduced motion.
 */
+type Item = { value: string; label: string; count?: number; prefix?: string; suffix?: string };
+const decimals = (item: Item) => (item.count !== undefined && !Number.isInteger(item.count) ? 1 : 0);
 ---
 
-<section class="impact" aria-labelledby="impact-title">
+<section class="impact" aria-labelledby="scale-title">
   <div class="container">
-    <h2 id="impact-title" class="visually-hidden">Impact in numbers</h2>
-    <ul class="impact-grid">
-      {
-        impact.map((item) => (
-          <li class="impact-item">
-            <span
-              class="impact-value"
-              data-count={item.count}
-              data-prefix={item.prefix ?? ''}
-              data-suffix={item.suffix ?? ''}
-              data-decimals={item.count !== undefined && !Number.isInteger(item.count) ? 1 : 0}
-            >
-              {item.value}
-            </span>
-            <span class="impact-label">{item.label}</span>
-          </li>
-        ))
-      }
-    </ul>
+    <div class="band band-scale">
+      <h2 id="scale-title" class="band-title">Scale I work at</h2>
+      <ul class="scale-grid">
+        {
+          (scale as Item[]).map((item) => (
+            <li class="scale-item">
+              <span
+                class="scale-value count-up"
+                data-count={item.count}
+                data-prefix={item.prefix ?? ''}
+                data-suffix={item.suffix ?? ''}
+                data-decimals={decimals(item)}
+              >
+                {item.value}
+              </span>
+              <span class="scale-label">{item.label}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div class="band band-results">
+      <h2 class="band-title">Results</h2>
+      <ul class="impact-grid">
+        {
+          (impact as Item[]).map((item) => (
+            <li class="impact-item">
+              <span
+                class="impact-value count-up"
+                data-count={item.count}
+                data-prefix={item.prefix ?? ''}
+                data-suffix={item.suffix ?? ''}
+                data-decimals={decimals(item)}
+              >
+                {item.value}
+              </span>
+              <span class="impact-label">{item.label}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
   </div>
 </section>
 
@@ -35,6 +63,72 @@ import { impact } from '../data/profile';
   .impact {
     border-top: 1px solid var(--rule);
     background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+  }
+
+  .band-title {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    font-stretch: 100%;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Scale: compact context row */
+  .band-scale {
+    padding-block: var(--space-6);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .scale-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5) var(--space-4);
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .scale-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-left: var(--space-3);
+    border-left: 2px solid color-mix(in srgb, var(--signal) 55%, var(--rule));
+  }
+
+  .scale-value {
+    color: var(--text);
+    font-size: clamp(1.375rem, 1.1rem + 1vw, 1.75rem);
+    font-weight: 740;
+    font-stretch: 120%;
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums lining-nums;
+    white-space: nowrap;
+  }
+
+  .scale-label {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  @media (min-width: 700px) {
+    .scale-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1100px) {
+    .scale-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+  }
+
+  /* Results */
+  .band-results {
+    padding-top: var(--space-6);
   }
 
   .impact-grid {
@@ -70,7 +164,7 @@ import { impact } from '../data/profile';
   }
 
   .impact-label {
-    max-width: 26ch;
+    max-width: 30ch;
     color: var(--text-muted);
     font-size: var(--text-sm);
     line-height: 1.4;
@@ -83,7 +177,7 @@ import { impact } from '../data/profile';
 
     .impact-item,
     .impact-item:nth-child(2n) {
-      padding: var(--space-7) var(--space-5);
+      padding: var(--space-6) var(--space-5);
       border-left: 1px solid var(--rule);
     }
 
@@ -106,7 +200,7 @@ import { impact } from '../data/profile';
 
 <script>
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const values = Array.from(document.querySelectorAll<HTMLElement>('.impact-value[data-count]'));
+  const values = Array.from(document.querySelectorAll<HTMLElement>('.count-up[data-count]'));
 
   if (!reduce.matches && values.length && 'IntersectionObserver' in window) {
     const run = (el: HTMLElement) => {

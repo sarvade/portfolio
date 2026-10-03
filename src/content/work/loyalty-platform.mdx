@@ -32,6 +32,7 @@ tags:
 
 import Flow from '../../components/viz/Flow.astro';
 import Callout from '../../components/viz/Callout.astro';
+import Architecture from '../../components/viz/Architecture.astro';
 
 ## What was at stake
 
@@ -50,14 +51,25 @@ I architected the platform on AWS, with Spark and Hive over Iceberg tables on S3
   ]}
 />
 
-<Flow
+<Architecture
   title="After: streaming on AWS"
-  steps={[
-    { label: 'Flight and vendor events' },
-    { label: 'Ingestion', note: 'Kafka, Flume, ClickHouse', tone: 'signal' },
-    { label: 'Spark and Hive', note: 'over Iceberg tables on S3' },
-    { label: 'Miles visible within minutes' },
+  layers={[
+    { name: 'Source', nodes: [{ label: 'Flight and vendor API events', note: '750+ flights a day' }] },
+    { name: 'Ingestion', nodes: [{ label: 'Kafka and Flume', note: 'streaming, not nightly batch', tone: 'signal' }] },
+    {
+      name: 'Compute and storage',
+      nodes: [{ label: 'Apache Spark and Hive' }, { label: 'Iceberg tables on S3' }, { label: 'ClickHouse' }],
+    },
+    { name: 'Serving', nodes: [{ label: 'Miles balance', note: 'within minutes of landing' }] },
   ]}
+  checks={{
+    name: 'Controls',
+    nodes: [
+      { label: 'Accuracy against source', note: '99.9%' },
+      { label: 'Encryption and IAM', note: 'owned by me' },
+      { label: 'CI/CD', note: 'owned by me' },
+    ],
+  }}
 />
 
 <Callout label="Ownership">
@@ -67,3 +79,7 @@ I architected the platform on AWS, with Spark and Hive over Iceberg tables on S3
 ## Result
 
 More than 1.6 million elite travelers went from seeing their miles the next morning to seeing them within minutes of landing, and query performance improved 45%. The same platform carries every one of those 750+ daily flights.
+
+## What I’d do differently now
+
+- Publish “landing to miles visible” as a freshness SLA on a dashboard from day one, so the number everyone cares about is watched continuously.

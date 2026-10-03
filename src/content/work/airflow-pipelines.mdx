@@ -62,3 +62,7 @@ Data from vendor APIs and legacy systems had to land in S3 and Teradata, every r
 />
 
 ETL runtime dropped from 4.5 hours to 1.5, three times faster and three hours back on every run, while accuracy held at 99.9%.
+
+## What I’d do differently now
+
+- Put a schema contract at the vendor boundary, so an upstream change fails loudly at ingestion instead of surfacing later in reconciliation.

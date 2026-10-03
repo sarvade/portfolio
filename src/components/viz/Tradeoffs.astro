@@ -1,0 +1,132 @@
+---
+/*
+  Design decisions as a small decision record: the question, what I chose,
+  what I chose it over, and why. Only real alternatives that were considered.
+*/
+export interface Decision {
+  question: string;
+  chose: string;
+  over: string;
+  why: string;
+}
+
+interface Props {
+  title?: string;
+  items: Decision[];
+}
+
+const { title = 'Decisions and trade-offs', items } = Astro.props;
+---
+
+<figure class="tradeoffs">
+  <p class="t-title">{title}</p>
+  <ol class="t-list">
+    {
+      items.map((d) => (
+        <li class="t-item">
+          <p class="t-question">{d.question}</p>
+          <dl class="t-grid">
+            <div class="t-row t-chose">
+              <dt>Chose</dt>
+              <dd>{d.chose}</dd>
+            </div>
+            <div class="t-row t-over">
+              <dt>Over</dt>
+              <dd>{d.over}</dd>
+            </div>
+            <div class="t-row t-why">
+              <dt>Because</dt>
+              <dd>{d.why}</dd>
+            </div>
+          </dl>
+        </li>
+      ))
+    }
+  </ol>
+</figure>
+
+<style>
+  .tradeoffs {
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+  }
+
+  .t-title {
+    margin-bottom: var(--space-4);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .t-list {
+    display: grid;
+    gap: var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .t-item {
+    margin: 0;
+  }
+
+  .t-item + .t-item {
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--rule);
+  }
+
+  .t-question {
+    margin-bottom: var(--space-3);
+    color: var(--text);
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .t-grid {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .t-row {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: var(--space-3);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+
+  dt {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text);
+  }
+
+  .t-chose dt {
+    color: var(--signal);
+  }
+
+  .t-chose dd {
+    font-weight: 650;
+  }
+
+  .t-over dd {
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 420px) {
+    .t-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+  }
+</style>

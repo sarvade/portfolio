@@ -52,3 +52,7 @@ The model's strategy version became a first-class key in the data. I carried it 
 ## Result
 
 The model team compared the new model against the old one on real creator traffic from launch day, instead of waiting a release cycle. It shipped inside my first two months on the job.
+
+## What I’d do differently now
+
+- Add an automated test that the model-version key survives every hop, so a dropped column fails a build instead of silently blending the comparison.

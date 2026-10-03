@@ -27,6 +27,8 @@ tags:
 
 import Flow from '../../components/viz/Flow.astro';
 import Callout from '../../components/viz/Callout.astro';
+import Architecture from '../../components/viz/Architecture.astro';
+import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
@@ -38,14 +40,49 @@ Analysts and data scientists in one region needed creator and seller data that l
   No table is the easy one. Every table gets the same pattern, so correctness comes from the process instead of from remembering which tables were risky.
 </Callout>
 
-<Flow
-  title="The pattern, applied to every table"
-  steps={[
-    { label: 'Register and classify fields', note: 'approval before any data moves' },
-    { label: 'Substitute protected fields', note: 'null values, same columns', tone: 'signal' },
-    { label: 'Transfer and monitor' },
-    { label: 'Row-level validation', note: 'source region vs destination' },
-    { label: 'Self-serve dataset' },
+<Architecture
+  title="One pattern for every table that crosses the boundary"
+  layers={[
+    { name: 'Source', nodes: [{ label: 'Source-region tables', note: 'no direct query access' }] },
+    {
+      name: 'Compute',
+      nodes: [
+        { label: 'Field classification', note: 'approved per table, before data moves' },
+        { label: 'Protected-field substitution', note: 'nulls, same columns and types', tone: 'signal' },
+      ],
+    },
+    { name: 'Storage', nodes: [{ label: 'Destination-region tables', note: 'monitored transfer jobs' }] },
+    { name: 'Serving', nodes: [{ label: 'Self-serve dataset', note: 'analysts query directly' }] },
+  ]}
+  checks={{
+    nodes: [
+      { label: 'Row-level validation', note: 'source region vs destination' },
+      { label: 'Partition-field mapping', note: 'naming mismatch resolved' },
+      { label: 'Compliance review', note: 'zero findings' },
+    ],
+  }}
+/>
+
+<Tradeoffs
+  items={[
+    {
+      question: 'What happens to a protected column?',
+      chose: 'Keep the column and type; substitute nulls',
+      over: 'Drop the column',
+      why: 'A dropped column breaks downstream schemas silently, three hops away from anything I could see.',
+    },
+    {
+      question: 'How do I know a transfer is right?',
+      chose: 'Row-level validation across both regions',
+      over: 'Trusting job completion status',
+      why: 'A finished job proves the job ran, not that the data is right.',
+    },
+    {
+      question: 'How do analysts get the data?',
+      chose: 'A self-serve dataset',
+      over: 'Answering ad-hoc requests one at a time',
+      why: 'Every request was a queue and a wait. Self-serve removes both.',
+    },
   ]}
 />
 
@@ -69,3 +106,12 @@ where  dt = '{{ ds }}';
 ## Result
 
 Zero compliance findings across every table I transferred. I built a self-serve dataset so analysts stopped filing ad-hoc requests, and investigation turnaround went from about three days to about an hour. I wrote the reference (SQL, schemas, partitions and compliance notes for each table), and it became the team's standard for later transfers. The part I'm proudest of is that it works without me in the room.
+
+## What broke, and what changed
+
+- **The two sides disagreed on a partition field’s name,** which would have quietly produced empty results instead of an error. I resolved it before it could.
+- **An older transfer, not mine, carried a row-level identifier.** A compliance review flagged it; I remediated it within the SLA with the same pattern.
+
+## What I’d do differently now
+
+- Keep the cross-region row check running on a schedule after launch, so drift after the first transfer gets caught too.

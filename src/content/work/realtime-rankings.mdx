@@ -27,6 +27,8 @@ tags:
 
 import Flow from '../../components/viz/Flow.astro';
 import Callout from '../../components/viz/Callout.astro';
+import Architecture from '../../components/viz/Architecture.astro';
+import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
@@ -52,18 +54,25 @@ The query wasn't the problem. The access pattern was. No amount of tuning makes 
   ]}
 />
 
-<Flow
-  title="After: compute once, upstream"
-  steps={[
-    { label: 'Live-commerce event stream' },
-    { label: 'Flink, hourly windows', note: '1.5B+ records, parallelism 100', tone: 'signal' },
-    { label: 'Message queue' },
-    { label: 'Serving store', note: 'indexed for ranking' },
-    { label: 'Page reads a lookup' },
-  ]}
-/>
-
 ## What I built
+
+<Architecture
+  title="Compute once as events arrive; read a lookup"
+  layers={[
+    { name: 'Source', nodes: [{ label: 'Live-commerce event stream', note: '1.5B+ records, 294 GB' }] },
+    { name: 'Compute', nodes: [{ label: 'Apache Flink', note: 'hourly windows, parallelism 100', tone: 'signal' }] },
+    { name: 'Publish', nodes: [{ label: 'Message queue', note: 'ranking results' }] },
+    { name: 'Storage', nodes: [{ label: 'Serving store', note: 'indexed for ranking' }] },
+    { name: 'Serving', nodes: [{ label: 'Creator page', note: 'one lookup per load' }] },
+  ]}
+  checks={{
+    name: 'Guardrails',
+    nodes: [
+      { label: 'Revenue as ranges', note: 'what creators see' },
+      { label: 'Opt-in', note: 'only participating creators' },
+    ],
+  }}
+/>
 
 Flink streaming jobs over the live-commerce event stream, 1.5B+ records and 294 GB at parallelism 100, producing hourly revenue and traffic rankings. Results are published through a message queue into a serving store indexed for ranking, so the cost of a page load no longer grows with the number of live sessions.
 
@@ -83,6 +92,17 @@ from table(
 group by session_id, window_start, window_end;
 ```
 
+<Tradeoffs
+  items={[
+    {
+      question: 'Fix the slow page: tune the query or move the work?',
+      chose: 'Precompute rankings in Flink as events arrive',
+      over: 'Keep tuning the read-time query',
+      why: 'A full scan on every page load can’t meet a latency budget at any tuning level. Moving the work upstream makes page cost independent of how many sessions exist.',
+    },
+  ]}
+/>
+
 ## Privacy as a pipeline property
 
 The product shows revenue as ranges rather than exact figures, and participation is opt-in, so creators can benchmark against each other without anyone's earnings being exposed to a peer. I built the pipeline to those constraints from the start, so the privacy property is structural rather than a display-layer promise.
@@ -90,3 +110,11 @@ The product shows revenue as ranges rather than exact figures, and participation
 ## Result
 
 Rankings return instantly, query time and compute cost dropped by orders of magnitude, and the feature launched for A/B testing. The stalled design was never going to get there with tuning; the redesign of where the work happens did.
+
+## What broke, and what changed
+
+The original design broke on its access pattern: it scanned millions of rows at read time, on every request, so cost grew with the number of live sessions and the page missed its latency budget. Precomputing upstream turned that scan into a lookup.
+
+## What I’d do differently now
+
+- Wire the A/B readout into the pipeline from the first release, so the outcome is a measured lift rather than a launch.

@@ -26,12 +26,47 @@ tags:
 import Flow from '../../components/viz/Flow.astro';
 import Compare from '../../components/viz/Compare.astro';
 import Callout from '../../components/viz/Callout.astro';
+import Architecture from '../../components/viz/Architecture.astro';
+import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
 Creators were seeing videos in their list with zero revenue and zero views, and leadership wanted to know why. The story everyone had already settled on was a broken filter for a new content type. Several people were treating it as a defect with a fix to find.
 
 If that story was wrong, the fix would ship, change nothing, and the real problem would stay buried under a closed ticket.
+
+<Architecture
+  title="Two paths to the same list: realtime and offline"
+  layers={[
+    { name: 'Source', nodes: [{ label: 'Upstream event stream', note: 'owned by another team' }] },
+    {
+      name: 'Compute',
+      nodes: [
+        { label: 'Realtime Flink transform', note: 'my job; missing flag defaults to 0', tone: 'caution' },
+        { label: 'Offline daily batch', note: '46M+ rows a partition' },
+      ],
+    },
+    {
+      name: 'Storage',
+      nodes: [
+        { label: 'Realtime table', note: '19 of 236 wrong', tone: 'caution' },
+        { label: 'Offline table', note: '0 of 236 wrong' },
+        { label: 'Ground-truth dimension', note: 'the tiebreaker' },
+      ],
+    },
+    {
+      name: 'Serving',
+      nodes: [{ label: 'Backend filter', note: 'applied correctly' }, { label: 'Creator video list' }],
+    },
+  ]}
+  checks={{
+    nodes: [
+      { label: 'Layer-by-layer elimination', note: 'backend, warehouse, partition' },
+      { label: '24-hour recheck', note: 'ruled out lag' },
+      { label: 'Same 236 items, both paths', note: 'against the expected flag' },
+    ],
+  }}
+/>
 
 ## Eliminate layer by layer
 
@@ -89,6 +124,33 @@ left join realtime_view r
 
 One open question could still reframe all of it: did the 236 items come from the live product page, or from a separate dashboard? If it was the dashboard, the investigation was scoped to the wrong surface, and the answer changes what "fixed" even means. It stays on the list until it is answered.
 
+<Tradeoffs
+  items={[
+    {
+      question: 'Ship the filter fix everyone expected?',
+      chose: 'Prove the cause first, layer by layer',
+      over: 'Patch the filter and close the ticket',
+      why: 'Backend and the warehouse both applied the filter correctly. A fix there would have shipped, changed nothing, and buried the real gap.',
+    },
+    {
+      question: 'Three items checked out. Stop there?',
+      chose: 'Close those three as not-a-bug, then scale the check to all 236',
+      over: 'Closing the whole escalation as not-a-bug',
+      why: 'Three clean items say nothing about the other 233. The full set is what isolated the realtime path.',
+    },
+  ]}
+/>
+
 ## Where it stands
 
 The team stopped chasing a filter fix that would have changed nothing. The real gap is scoped to one job, and I set up a working group with the realtime, warehouse and product owners to close it. Once it closes, the next number here is the post-fix mismatch rate.
+
+## What broke, and what changed
+
+- **A default can hide missing data.** The realtime job turns a flag the upstream event hasn’t carried yet into a zero, so “not known yet” looks exactly like “no”. That makes any zero in the realtime path suspect until ground truth confirms it, which is why I checked ground truth before believing one. The cause of the 19 is still open; a default like this is one way a zero can mislead.
+- **The source of the flagged list came up late.** Whether the 236 items came from the live page or a dashboard was raised partway through. It changes what “fixed” means, so it belongs at the start.
+
+## What I’d do differently now
+
+- Confirm where a flagged list came from (the live page or a dashboard) before the first query.
+- Emit a null rather than a zero when an upstream field hasn’t arrived, so missing data is visible instead of silently false.

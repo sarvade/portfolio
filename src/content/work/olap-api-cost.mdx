@@ -28,16 +28,55 @@ tags:
 import Flow from '../../components/viz/Flow.astro';
 import Compare from '../../components/viz/Compare.astro';
 import Callout from '../../components/viz/Callout.astro';
+import Architecture from '../../components/viz/Architecture.astro';
+import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
 A creator-facing API was failing at peak traffic in one region, with its success rate down to about 70%. Backend wanted the rate limit raised, which is the fix everyone reaches for first.
 
-The capacity math said otherwise. Every call was scanning 8.24 million rows in the shared OLAP cluster behind it. At the existing 150-QPS cap, that is up to 150 × 8.24M ≈ 1.2 billion rows scanned every second. Raising the cap would not have healed the API. It would have moved the incident into the OLAP cluster itself.
+The capacity math said otherwise. Every call was scanning 8.24 million rows in the OLAP cluster behind it. At the existing 150-QPS cap, that is up to 150 × 8.24M ≈ 1.2 billion rows scanned every second. Raising the cap would not have healed the API. It would have moved the incident into the OLAP cluster itself.
 
-<Callout label="The call">
-  Make each call cheaper before allowing more of them. I owned the query, so the cost was mine to fix.
-</Callout>
+<Architecture
+  title="The read path behind the API"
+  layers={[
+    { name: 'Client', nodes: [{ label: 'Creator-facing page', note: 'peak traffic in one region' }] },
+    { name: 'Serving', nodes: [{ label: 'API with a rate limit', note: '150 QPS, later 200' }] },
+    {
+      name: 'Query engine',
+      nodes: [
+        { label: 'Apache Doris query', note: 'long IN-list filter', tone: 'caution' },
+        { label: 'Scan-key hint', note: 'one line, index back in play', tone: 'signal' },
+      ],
+    },
+    { name: 'Storage', nodes: [{ label: 'OLAP table', note: 'prefix index on key columns' }] },
+  ]}
+  checks={{
+    name: 'Evidence',
+    nodes: [
+      { label: 'Query plans', note: 'read with the cluster owner' },
+      { label: 'Rows scanned per call', note: '8.24M → ~0.1–0.2M' },
+      { label: 'Limit change', note: 'filed with before/after attached' },
+    ],
+  }}
+/>
+
+<Tradeoffs
+  items={[
+    {
+      question: 'An API failing at peak: buy capacity or cut cost?',
+      chose: 'Cut per-call cost first, then raise the limit',
+      over: 'Raise the rate limit right away',
+      why: 'At 8.24M rows a call, the existing 150-QPS cap already allowed up to 1.2B rows a second of scanning. Raising it would only have added load; the incident would have moved, not ended.',
+    },
+    {
+      question: 'During a failover, bump the cap?',
+      chose: 'A measured decision rule, with a formal change only past a threshold',
+      over: 'An unreviewed limit change mid-incident',
+      why: 'The backup environment had none of the tuning, and nobody could judge the blast radius during the incident.',
+    },
+  ]}
+/>
 
 ## Diagnosis
 
@@ -100,3 +139,13 @@ I said no, and I didn't stop at no. Raising the cap in an environment without th
 The success rate recovered, and the API has run under the new limit since. Reviewing scan cost before capacity became the team's default first step for OLAP-backed list APIs. I later walked a colleague through the same plan and hint when his new interface failed scan testing days before its launch date; it passed on time, and I added the pattern to the team's [AI debugging skill](../ai-oncall-skills/) so the next person doesn't need either of us.
 
 The change itself was one line. That's the point: the expensive fix was the wrong one.
+
+## What broke, and what changed
+
+- **The engine changed plans without telling anyone.** The `IN` list was longer than the scan-key limit, so the engine quietly stopped using the prefix index: correct results, 40–80× the work, no error. Reviewing scan cost before capacity is now the team’s default first step for OLAP-backed list APIs.
+- **The failover environment didn’t have the fix.** The backup had none of the tuning, and the same API hit its cap at about 250 QPS. A decision rule kept the response measured, and nothing unreviewed shipped.
+
+## What I’d do differently now
+
+- Ship query tuning with the API’s configuration, so a failover environment inherits it instead of starting from defaults.
+- Alert on rows scanned per call, not just latency and errors. A cost cliff shows up in scan volume before it shows up as failures.

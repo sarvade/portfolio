@@ -1,6 +1,6 @@
 ---
 import { getEntry } from 'astro:content';
-import { skills } from '../data/profile';
+import { alsoUsed, skills } from '../data/profile';
 import { url } from '../lib/url';
 
 /*
@@ -58,6 +58,7 @@ const proven = skills.reduce((n, g) => n + g.items.filter((s) => s.work).length,
     }
   </ul>
   <p class="skills-legend"><span class="proven-dot" aria-hidden="true"></span> links to a case study where I used it</p>
+  {alsoUsed.length > 0 && <p class="skills-also">Also worked with: {alsoUsed.join(', ')}.</p>}
   <p class="visually-hidden" aria-live="polite" data-skill-status></p>
 </div>
 
@@ -173,6 +174,12 @@ const proven = skills.reduce((n, g) => n + g.items.filter((s) => s.work).length,
         border-color 0.3s ease,
         background-color 0.3s ease;
     }
+  }
+
+  .skills-also {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
   }
 
   .skills-legend {
