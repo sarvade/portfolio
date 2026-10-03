@@ -11,6 +11,7 @@ const { hasPosts } = Astro.props;
 const links = [
   { href: url('#work'), label: 'Work', section: 'work' },
   { href: url('#experience'), label: 'Experience', section: 'experience' },
+  { href: url('#approach'), label: 'Approach', section: 'approach' },
   { href: url('#skills'), label: 'Skills', section: 'skills' },
   { href: url('#about'), label: 'About', section: 'about' },
   ...(hasPosts ? [{ href: url('blog/'), label: 'Writing', section: 'writing' }] : []),

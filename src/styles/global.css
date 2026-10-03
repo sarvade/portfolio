@@ -446,22 +446,24 @@ a:hover {
 }
 
 /* Shiki dual themes (defaultColor: false emits --shiki-light / --shiki-dark) */
+/* Token colors come from Shiki; the block itself sits on the page surface. */
 .astro-code,
 .astro-code span {
   color: var(--shiki-dark);
-  background-color: var(--shiki-dark-bg);
+}
+
+.astro-code {
+  background-color: var(--surface);
 }
 
 :root[data-theme='light'] .astro-code,
 :root[data-theme='light'] .astro-code span {
   color: var(--shiki-light);
-  background-color: var(--shiki-light-bg);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) .astro-code,
   :root:not([data-theme]) .astro-code span {
     color: var(--shiki-light);
-    background-color: var(--shiki-light-bg);
   }
 }

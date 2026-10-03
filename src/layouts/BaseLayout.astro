@@ -23,6 +23,9 @@ const fullTitle = title ? `${title} | ${site.name}` : `${site.name} | ${site.rol
 const canonical = new URL(Astro.url.pathname, Astro.site).toString();
 const ogImage = absoluteUrl('og.png', Astro.site);
 const hasPosts = (await getPosts()).length > 0;
+const consoleNote = `console.info(${JSON.stringify(
+  `Hi, fellow engineer. This site is static HTML from Astro: no framework runtime, no trackers.\nSource: ${site.links.source}\nMy résumé as data: ${absoluteUrl('resume.json', Astro.site)}`,
+)});`;
 ---
 
 <!doctype html>
@@ -86,6 +89,7 @@ const hasPosts = (await getPosts()).length > 0;
       <slot />
     </main>
     <SiteFooter />
+    <script is:inline set:html={consoleNote} />
   </body>
 </html>
 

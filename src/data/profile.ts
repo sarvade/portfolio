@@ -1,6 +1,6 @@
 /**
  * Single source of truth for the home page.
- * Every figure here comes from the résumé (public/Sai_Sarvade_Resume.pdf).
+ * Figures come from the résumé. Internal product and tool names are left out on purpose.
  * Case studies and projects live in src/content/work/, blog posts in src/content/blog/.
  */
 
@@ -10,7 +10,7 @@ export const site = {
   location: 'San Jose, CA',
   email: 'sai.s.sarvade@gmail.com',
   description:
-    'Sai S Sarvade is a data engineer at TikTok who turns raw event logs into canonical datasets and metrics people can trust: 30+ production pipelines, 20 TB+ a day.',
+    'Sai S Sarvade is a data engineer who turns raw event logs into canonical datasets and metrics people can trust. 5+ years across TikTok and Delta Air Lines.',
   /** File name inside /public. Replace the PDF to update the résumé everywhere. */
   resume: 'Sai_Sarvade_Resume.pdf',
   links: {
@@ -23,8 +23,23 @@ export const site = {
 export const hero = {
   headline: 'I turn raw logs into numbers people can trust.',
   intro:
-    "I’m Sai Sarvade, a data engineer at TikTok. I own 30+ production pipelines processing 20 TB+ a day, and the metric definitions 15M+ users act on. Before that, I spent nearly four years building data pipelines at Delta\u00a0Air\u00a0Lines.",
+    'I’m Sai Sarvade, a data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly four years building data pipelines at Delta Air Lines.',
+  /**
+   * Optional line shown in the at-a-glance card, e.g. 'Open to senior data engineering roles'.
+   * Leave empty to hide it.
+   */
+  availability: '',
 };
+
+/** The at-a-glance card next to the headline. Written for a 10-second scan. */
+export const glance = [
+  { label: 'Role', value: 'Data Engineer at TikTok' },
+  { label: 'Experience', value: '5+ years (TikTok, Delta Air Lines)' },
+  { label: 'Based in', value: 'San Jose, CA' },
+  { label: 'Focus', value: 'Data integrity, metric definitions, batch and streaming pipelines' },
+  { label: 'Core stack', value: 'SQL, Python, Spark, Flink, Airflow, dbt, Kafka, AWS' },
+  { label: 'Education', value: 'MS, Rice University' },
+];
 
 /** Labels and notes for the pipeline diagram in the hero. Keep notes short (about 22 characters). */
 export const pipeline = {
@@ -36,8 +51,7 @@ export const pipeline = {
   outputsShort: ['Dashboards', 'Self-serve', 'ML features'],
   reach: '15M+ users, 19 countries',
   alert: 'Alert raised',
-  caption:
-    'The shape of the pipelines I run at TikTok, simplified. The moving dots are illustrative; the numbers are real.',
+  caption: 'How my pipelines fit together, simplified. The moving dots are illustrative; the numbers are real.',
 };
 
 export type Highlight = {
@@ -65,29 +79,28 @@ export const experience: Job[] = [
     location: 'San Jose, CA',
     start: 'May 2025',
     end: 'Present',
-    context:
-      'Creator Compass and Seller Compass, the self-serve analytics products 15M+ users rely on across 19 countries.',
+    context: 'Self-serve analytics products used by 15M+ people across 19 countries.',
     highlights: [
       {
-        text: 'Define and manage the multi-step ETL that turns raw event logs into the canonical datasets the company reports on. Shipped 18 new metric definitions with 12 months of rebuilt history, and own the documentation so teams read the same number the same way across 19 markets.',
+        text: 'Own the multi-step ETL that turns raw event logs into the canonical datasets the company reports on. Shipped 18 new metric definitions with 12 months of rebuilt history, documented so every market reads them the same way.',
         work: 'canonical-metrics',
       },
       {
-        text: 'Set the data integrity standards and delivery SLAs for 30+ production pipelines at 20 TB a day, and built PulseOps to enforce them: automated validation across every job, freshness and quality checks, and alerting before a stakeholder opens a stale dashboard. Wrote the standards doc the team adopted and deployed it across 5 regions.',
-        work: 'pulseops',
+        text: 'Set data integrity standards and delivery SLAs at 20 TB a day, then built the tooling that enforces them: automated validation on every job, freshness and quality checks, and alerts before a stakeholder opens a stale dashboard. The team adopted the standard, and I deployed it across 5 regions.',
+        work: 'data-integrity',
       },
       {
-        text: 'Caught a revenue calculation error during validation that would have published wrong numbers to every user dashboard at launch, on a rebuild already committed to a date. Shipped on time and correct rather than choosing between them.',
+        text: 'Caught a revenue calculation error during validation that would have reached every user dashboard at launch, and still shipped on the committed date.',
       },
       {
-        text: 'Diagnosed a stalled ranking feature others were fixing by tuning the query, found the constraint was the access pattern, and moved computation upstream into Flink over a 1.5B+ record stream, cutting query time and compute cost by orders of magnitude.',
+        text: 'Diagnosed a stalled ranking feature: the constraint was the access pattern, not the query. Moved the computation upstream into Flink over a 1.5B+ record stream, cutting query time and compute cost by orders of magnitude.',
         work: 'flink-upstream',
       },
       {
-        text: 'Build foundational data products and reporting that let analysts and business teams self-serve rather than queue behind a data engineer, and translate ambiguous stakeholder questions into the data models and technical requirements that answer them.',
+        text: 'Build self-serve data products so analysts and business teams don’t queue behind a data engineer, and turn ambiguous questions into data models and technical requirements.',
       },
       {
-        text: 'Support machine learning work end to end, building the feature and evaluation datasets a production model consumed and the serving layer around its deployment. Mentor junior engineers on modeling and code review.',
+        text: 'Built the feature and evaluation datasets and the serving layer for a production ML model. Mentor junior engineers on modeling and code review.',
       },
     ],
   },
@@ -100,24 +113,99 @@ export const experience: Job[] = [
     end: 'May 2025',
     highlights: [
       {
-        text: 'Modeled the loyalty domain into Teradata for 500K+ customers and built the segmentation reporting and dashboards marketing and operations teams ran campaigns from, working directly with non-technical stakeholders as requirements shifted.',
-      },
-      {
-        text: 'Led migration of 50+ legacy Informatica workflows onto AWS Glue PySpark and Lambda with GitHub-based CI/CD, cutting licensing costs 65%, roughly $850K a year.',
+        text: 'Led the migration of 50+ Informatica workflows to AWS Glue (PySpark) and Lambda with GitHub-based CI/CD, cutting licensing costs 65%, about $850K a year.',
         work: 'informatica-to-glue',
       },
       {
-        text: 'Designed and operated production Airflow pipelines integrating vendor APIs and legacy systems into S3 and Teradata, cutting ETL runtime 65% from 4.5 hours to 1.5 and holding 99.9% accuracy with idempotent DAGs and reconciliation checks.',
-        work: 'airflow-pipelines',
-      },
-      {
-        text: 'Built asynchronous event-driven ingestion on Kinesis, Lambda, and SNS carrying 3M+ daily transactions at 99.9% uptime, cutting end-to-end latency from 2 hours to under 5 minutes.',
+        text: 'Built event-driven ingestion on Kinesis, Lambda, and SNS for 3M+ transactions a day at 99.9% uptime, cutting end-to-end latency from 2 hours to under 5 minutes.',
         work: 'event-driven-ingestion',
       },
       {
-        text: 'Built a serverless S3 data lake, moving 15 TB with AWS DMS and cataloging it through Glue Catalog and Lake Formation with the access controls required for GDPR and CCPA.',
+        text: 'Designed and ran production Airflow pipelines from vendor APIs and legacy systems into S3 and Teradata, cutting ETL runtime from 4.5 hours to 1.5 at 99.9% accuracy with idempotent DAGs and reconciliation checks.',
+        work: 'airflow-pipelines',
+      },
+      {
+        text: 'Modeled the loyalty domain in Teradata for 500K+ customers and built the segmentation reporting and dashboards that marketing and operations ran campaigns from.',
+      },
+      {
+        text: 'Built a serverless S3 data lake: moved 15 TB with AWS DMS and cataloged it in Glue Catalog and Lake Formation with the access controls GDPR and CCPA require.',
       },
     ],
+  },
+];
+
+export type Principle = {
+  title: string;
+  body: string;
+  /** Case study that shows this in practice. */
+  proof: string;
+  lang: 'sql' | 'yaml' | 'python';
+  /** Illustrative pattern only. Never paste production code or internal names here. */
+  code: string;
+};
+
+/** The "Approach" section: habits backed by work on the résumé, each with a small illustrative pattern. */
+export const principles: Principle[] = [
+  {
+    title: 'Validate before anyone sees it',
+    body: 'Freshness and quality checks run on every job, and a failure raises an alert before a stakeholder opens the dashboard. Validation is also how I caught a revenue calculation error before a launch, and the launch still shipped on time.',
+    proof: 'data-integrity',
+    lang: 'sql',
+    code: `-- Gate the publish: any row returned = fail
+select count(*) as row_count,
+       count_if(revenue < 0) as negative_revenue,
+       max(event_ts) as latest_event
+from   staging.daily_orders
+where  dt = '{{ ds }}'
+having count(*) = 0
+    or count_if(revenue < 0) > 0
+    or max(event_ts) < date '{{ ds }}';`,
+  },
+  {
+    title: 'Make every rerun safe',
+    body: 'Retries and backfills will happen. A load that overwrites its partition gives the same result no matter how many times it runs. Idempotent DAGs and reconciliation checks are how my Airflow pipelines held 99.9% accuracy.',
+    proof: 'airflow-pipelines',
+    lang: 'sql',
+    code: `-- Rerun a day: replaced, never duplicated
+insert overwrite table mart.daily_orders
+partition (dt = '{{ ds }}')
+select order_id,
+       customer_id,
+       amount_usd
+from   staging.orders
+where  dt = '{{ ds }}';`,
+  },
+  {
+    title: 'Fix the access pattern, not just the query',
+    body: 'When data is read the wrong way, query tuning hits a ceiling. Moving a ranking feature’s computation upstream into Flink, so the work happens as events arrive, cut query time and compute cost by orders of magnitude.',
+    proof: 'flink-upstream',
+    lang: 'sql',
+    code: `-- Flink SQL: aggregate as events arrive
+insert into item_scores
+select item_id,
+       window_end,
+       count(*) as interactions
+from table(
+  tumble(table events,
+         descriptor(event_time),
+         interval '5' minutes))
+group by item_id, window_end;`,
+  },
+  {
+    title: 'One definition per metric',
+    body: 'A metric should mean one thing everywhere. I shipped 18 new definitions with documentation and 12 months of rebuilt history, so teams in 19 markets read the same number the same way.',
+    proof: 'canonical-metrics',
+    lang: 'yaml',
+    code: `# One definition, reused everywhere
+metrics:
+  - name: daily_active_users
+    label: Daily active users
+    description: >
+      Distinct users with at least
+      one session in the UTC day.
+    type: simple
+    type_params:
+      measure: active_user_count`,
   },
 ];
 
@@ -192,10 +280,10 @@ export const skills: SkillGroup[] = [
   {
     group: 'Integrity and reliability',
     items: [
-      { name: 'Data SLAs', work: 'pulseops' },
-      { name: 'Automated validation', work: 'pulseops' },
-      { name: 'Freshness monitoring', work: 'pulseops' },
-      { name: 'Alerting', work: 'pulseops' },
+      { name: 'Data SLAs', work: 'data-integrity' },
+      { name: 'Automated validation', work: 'data-integrity' },
+      { name: 'Freshness monitoring', work: 'data-integrity' },
+      { name: 'Alerting', work: 'data-integrity' },
       { name: 'Reconciliation', work: 'airflow-pipelines' },
       { name: 'Lineage' },
       { name: 'Documentation', work: 'canonical-metrics' },

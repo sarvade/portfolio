@@ -1,6 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PipelineDiagram from '../components/PipelineDiagram.astro';
+import AtAGlance from '../components/AtAGlance.astro';
+import Approach from '../components/Approach.astro';
 import WorkList from '../components/WorkList.astro';
 import Experience from '../components/Experience.astro';
 import Skills from '../components/Skills.astro';
@@ -34,11 +36,16 @@ const jsonLd = {
 
 <BaseLayout jsonLd={jsonLd}>
   <section class="hero container" aria-labelledby="hero-title">
-    <h1 id="hero-title">{hero.headline}</h1>
-    <p class="hero-intro">{hero.intro}</p>
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="#work">See selected work</a>
-      <a class="btn btn-quiet" href={url(site.resume)}>Résumé (PDF)</a>
+    <div class="hero-grid">
+      <div class="hero-main">
+        <h1 id="hero-title">{hero.headline}</h1>
+        <p class="hero-intro">{hero.intro}</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#work">See selected work</a>
+          <a class="btn btn-quiet" href={url(site.resume)}>Résumé (PDF)</a>
+        </div>
+      </div>
+      <AtAGlance />
     </div>
     <PipelineDiagram />
   </section>
@@ -47,7 +54,7 @@ const jsonLd = {
     <div class="container section-grid">
       <div class="section-head">
         <h2 id="work-title">Selected work</h2>
-        <p>Case studies from TikTok and Delta Air Lines. Internal system names and figures beyond my résumé are left out on purpose.</p>
+        <p>Case studies from TikTok and Delta Air Lines: the problem, the constraint, what I did, and the result. Internal names and details are left out on purpose.</p>
       </div>
       <WorkList items={caseStudies} />
     </div>
@@ -74,6 +81,16 @@ const jsonLd = {
         <p>5+ years building data pipelines, canonical datasets, and the checks that keep them correct.</p>
       </div>
       <Experience />
+    </div>
+  </section>
+
+  <section id="approach" class="section" aria-labelledby="approach-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="approach-title">Approach</h2>
+        <p>Four habits behind the work above. Each comes with the pattern it boils down to; the snippets are illustrative, not production code.</p>
+      </div>
+      <Approach />
     </div>
   </section>
 
@@ -127,6 +144,19 @@ const jsonLd = {
   .hero {
     padding-top: clamp(3rem, 1.5rem + 6vw, 7rem);
     padding-bottom: var(--space-8);
+  }
+
+  .hero-grid {
+    display: grid;
+    gap: var(--space-7);
+    align-items: end;
+  }
+
+  @media (min-width: 1080px) {
+    .hero-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
+      gap: var(--space-8);
+    }
   }
 
   .hero h1 {

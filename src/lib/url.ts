@@ -5,7 +5,7 @@
  *
  *   url()                 -> '/portfolio/'
  *   url('#work')          -> '/portfolio/#work'
- *   url('work/pulseops/') -> '/portfolio/work/pulseops/'
+ *   url('work/data-integrity/') -> '/portfolio/work/data-integrity/'
  */
 export function url(path = ''): string {
   const base = import.meta.env.BASE_URL;

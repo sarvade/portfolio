@@ -26,6 +26,8 @@ npm run preview    # serve the production build
 | Headshot | replace `src/assets/headshot.jpg` (4:5 portrait works best) |
 | Colors, type scale, spacing | `src/styles/global.css` |
 | Hero pipeline diagram labels | `pipeline` in `src/data/profile.ts` |
+| At-a-glance card, optional "open to roles" line | `glance` and `hero.availability` in `src/data/profile.ts` |
+| Approach section (habits + illustrative snippets) | `principles` in `src/data/profile.ts` |
 
 ## Add a blog post
 
@@ -57,6 +59,7 @@ In `astro.config.mjs`, set `site` to the new origin (e.g. `https://saisarvade.de
 
 ## Other scripts
 
+- `src/pages/resume.json.ts` publishes the résumé as data at `/portfolio/resume.json` ([JSON Resume](https://jsonresume.org/schema) format), generated from `profile.ts`. It never includes a phone number.
 - `scripts/check-links.mjs` checks every internal link and asset in `dist/`, including the `/portfolio/` base path and `#fragment` targets.
 - `scripts/subset-font.py` rebuilds the trimmed Archivo font in `src/fonts/` (needs `pip install fonttools brotli`).
 - `scripts/render-images.py` regenerates `public/og.png` and the PNG icons (needs Python Playwright).

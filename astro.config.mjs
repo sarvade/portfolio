@@ -21,7 +21,7 @@ export default defineConfig({
   integrations: [mdx(), sitemap()],
   markdown: {
     shikiConfig: {
-      themes: { light: 'github-light', dark: 'github-dark' },
+      themes: { light: 'github-light-default', dark: 'github-dark-default' },
       defaultColor: false,
     },
   },

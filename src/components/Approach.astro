@@ -1,0 +1,73 @@
+---
+import { Code } from 'astro:components';
+import { getEntry } from 'astro:content';
+import { principles } from '../data/profile';
+import { url } from '../lib/url';
+
+const items = await Promise.all(
+  principles.map(async (p) => {
+    const entry = await getEntry('work', p.proof);
+    if (!entry) throw new Error(`Principle "${p.title}" links to missing case study "${p.proof}"`);
+    return { ...p, proofTitle: entry.data.title };
+  }),
+);
+---
+
+<ul class="principles">
+  {
+    items.map((p) => (
+      <li class="principle">
+        <h3>{p.title}</h3>
+        <p>{p.body}</p>
+        <div class="snippet">
+          <Code code={p.code} lang={p.lang} themes={{ light: 'github-light-default', dark: 'github-dark-default' }} defaultColor={false} />
+        </div>
+        <a class="proof" href={url(`work/${p.proof}/`)}>
+          Case study: {p.proofTitle}
+        </a>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .principles {
+    display: grid;
+    gap: var(--space-7);
+    padding: 0;
+    list-style: none;
+  }
+
+  .principle {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .principle p {
+    max-width: 64ch;
+  }
+
+  .snippet {
+    min-width: 0;
+    margin-top: var(--space-2);
+  }
+
+  .snippet :global(pre) {
+    margin: 0;
+    padding: var(--space-4) var(--space-5);
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-s);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    tab-size: 2;
+  }
+
+  .proof {
+    justify-self: start;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+</style>

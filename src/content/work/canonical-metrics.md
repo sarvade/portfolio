@@ -22,7 +22,7 @@ tags:
 
 ## Context
 
-Creator Compass and Seller Compass are self-serve analytics products that 15M+ users rely on across 19 countries. Everything they show starts as raw event logs.
+The analytics products I work on are used by 15M+ people across 19 countries. Everything they show starts as raw event logs.
 
 ## The goal
 
