@@ -1,0 +1,160 @@
+---
+/*
+  Custom cursor, modelled on the reference site: a small dot replaces the
+  system cursor and reacts to links and buttons. Here a trailing ring adds
+  the hover state: it grows over anything clickable and tightens on click.
+
+  Only on devices with a precise pointer (mouse or trackpad). Touch screens,
+  keyboard users and anyone with JS off keep the normal cursor. With reduced
+  motion the ring follows instantly instead of easing.
+*/
+---
+
+<div class="cursor-dot" aria-hidden="true"></div>
+<div class="cursor-ring" aria-hidden="true"></div>
+
+<style is:global>
+  .cursor-dot,
+  .cursor-ring {
+    display: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    html.has-cursor,
+    html.has-cursor * {
+      cursor: none !important;
+    }
+
+    html.has-cursor .cursor-dot,
+    html.has-cursor .cursor-ring {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+      pointer-events: none;
+      border-radius: 50%;
+      opacity: 0;
+      will-change: transform;
+    }
+
+    html.has-cursor.cursor-visible .cursor-dot,
+    html.has-cursor.cursor-visible .cursor-ring {
+      opacity: 1;
+    }
+
+    .cursor-dot {
+      width: 8px;
+      height: 8px;
+      margin: -4px 0 0 -4px;
+      background: var(--signal);
+      transition:
+        opacity 0.2s,
+        width 0.2s,
+        height 0.2s,
+        margin 0.2s,
+        background-color 0.2s;
+    }
+
+    .cursor-ring {
+      width: 34px;
+      height: 34px;
+      margin: -17px 0 0 -17px;
+      border: 1.5px solid color-mix(in srgb, var(--signal) 55%, transparent);
+      transition:
+        opacity 0.2s,
+        width 0.25s ease,
+        height 0.25s ease,
+        margin 0.25s ease,
+        background-color 0.25s,
+        border-color 0.25s;
+    }
+
+    /* Over anything clickable: the ring opens up and fills, the dot shrinks. */
+    html.cursor-hover .cursor-ring {
+      width: 52px;
+      height: 52px;
+      margin: -26px 0 0 -26px;
+      background: color-mix(in srgb, var(--signal) 14%, transparent);
+      border-color: var(--signal);
+    }
+
+    html.cursor-hover .cursor-dot {
+      width: 4px;
+      height: 4px;
+      margin: -2px 0 0 -2px;
+    }
+
+    /* Over code and text you might select: a thin bar instead of a dot. */
+    html.cursor-text .cursor-dot {
+      width: 2px;
+      height: 20px;
+      margin: -10px 0 0 -1px;
+      border-radius: 1px;
+    }
+
+    html.cursor-text .cursor-ring {
+      opacity: 0 !important;
+    }
+
+    html.cursor-down .cursor-ring {
+      width: 26px;
+      height: 26px;
+      margin: -13px 0 0 -13px;
+    }
+  }
+</style>
+
+<script>
+  const fine = window.matchMedia('(hover: hover) and (pointer: fine)');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const root = document.documentElement;
+  const dot = document.querySelector<HTMLElement>('.cursor-dot');
+  const ring = document.querySelector<HTMLElement>('.cursor-ring');
+
+  if (fine.matches && dot && ring) {
+    root.classList.add('has-cursor');
+
+    const interactive = 'a, button, [role="button"], summary, label, select, .work-row';
+    const textual = 'pre, code, input, textarea, [contenteditable="true"]';
+    let x = -100;
+    let y = -100;
+    let rx = -100;
+    let ry = -100;
+    let frame = 0;
+
+    const render = () => {
+      // The ring eases toward the pointer; with reduced motion it snaps.
+      const k = reduce.matches ? 1 : 0.2;
+      rx += (x - rx) * k;
+      ry += (y - ry) * k;
+      dot.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      ring.style.transform = `translate3d(${rx}px, ${ry}px, 0)`;
+      frame = Math.abs(x - rx) + Math.abs(y - ry) > 0.1 ? requestAnimationFrame(render) : 0;
+    };
+
+    window.addEventListener(
+      'pointermove',
+      (event) => {
+        if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+        x = event.clientX;
+        y = event.clientY;
+        if (!root.classList.contains('cursor-visible')) {
+          rx = x;
+          ry = y;
+          root.classList.add('cursor-visible');
+        }
+        const target = event.target as Element | null;
+        root.classList.toggle('cursor-hover', !!target?.closest(interactive));
+        root.classList.toggle('cursor-text', !target?.closest(interactive) && !!target?.closest(textual));
+        if (!frame) frame = requestAnimationFrame(render);
+      },
+      { passive: true },
+    );
+
+    document.addEventListener('pointerleave', () => root.classList.remove('cursor-visible'));
+    window.addEventListener('blur', () => root.classList.remove('cursor-visible'));
+    window.addEventListener('pointerdown', () => root.classList.add('cursor-down'));
+    window.addEventListener('pointerup', () => root.classList.remove('cursor-down'));
+  }
+</script>

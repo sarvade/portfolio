@@ -1,0 +1,83 @@
+---
+/*
+  Site-wide motion, modelled on the reference site:
+  - a thin reading-progress bar along the top edge
+  - sections that fade up as they scroll into view
+  Both are skipped with reduced motion, and content is always visible without JS.
+*/
+---
+
+<div class="scroll-progress" aria-hidden="true"></div>
+
+<style is:global>
+  .scroll-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
+    height: 2px;
+    background: var(--signal);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .js .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition:
+        opacity 0.7s ease,
+        transform 0.7s ease;
+    }
+
+    .js .reveal.is-visible {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
+
+<script>
+  // Reading progress
+  const bar = document.querySelector<HTMLElement>('.scroll-progress');
+  let ticking = false;
+  const update = () => {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const pct = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+    if (bar) bar.style.transform = `scaleX(${pct})`;
+    ticking = false;
+  };
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    },
+    { passive: true },
+  );
+  window.addEventListener('resize', update);
+  update();
+
+  // Reveal on scroll
+  const items = document.querySelectorAll<HTMLElement>('.reveal');
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' },
+    );
+    items.forEach((item) => observer.observe(item));
+  } else {
+    items.forEach((item) => item.classList.add('is-visible'));
+  }
+</script>

@@ -1,0 +1,91 @@
+---
+/*
+  Rotating roles typed out letter by letter, modelled on the reference site's
+  typewriter: type at 75 ms a letter, hold 1.9 s, delete at 38 ms, pause 0.4 s.
+  Screen readers get the full list once as plain text; the animated text is
+  hidden from them. With JS off or reduced motion, the first role shows still.
+*/
+interface Props {
+  roles: string[];
+}
+const { roles } = Astro.props;
+---
+
+<span class="typewriter">
+  <span class="visually-hidden">{roles.join(', ')}</span>
+  <span class="tw-text" aria-hidden="true" data-roles={JSON.stringify(roles)}>{roles[0]}</span><span
+    class="tw-caret"
+    aria-hidden="true"></span>
+</span>
+
+<style>
+  .typewriter {
+    white-space: nowrap;
+  }
+
+  .tw-text {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .tw-caret {
+    display: inline-block;
+    width: 2px;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    border-radius: 1px;
+    background: var(--signal);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .tw-caret {
+      animation: blink 1s step-end infinite;
+    }
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+</style>
+
+<script>
+  const el = document.querySelector<HTMLElement>('.tw-text');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  if (el && !reduce.matches) {
+    const roles: string[] = JSON.parse(el.dataset.roles ?? '[]');
+    if (roles.length > 1) {
+      let role = 0;
+      let chars = roles[0].length;
+      let deleting = true;
+      const tick = () => {
+        const word = roles[role];
+        if (deleting) {
+          chars -= 1;
+          el.textContent = word.slice(0, chars);
+          if (chars === 0) {
+            deleting = false;
+            role = (role + 1) % roles.length;
+            window.setTimeout(tick, 380);
+            return;
+          }
+          window.setTimeout(tick, 38);
+        } else {
+          chars += 1;
+          el.textContent = roles[role].slice(0, chars);
+          if (chars === roles[role].length) {
+            deleting = true;
+            window.setTimeout(tick, 1900);
+            return;
+          }
+          window.setTimeout(tick, 75);
+        }
+      };
+      // The first role is already on screen; hold it, then start cycling.
+      window.setTimeout(tick, 2200);
+    }
+  }
+</script>

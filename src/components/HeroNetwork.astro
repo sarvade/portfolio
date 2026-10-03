@@ -1,0 +1,179 @@
+---
+/*
+  Particle network behind the hero, modelled on the reference site's canvas:
+  drifting nodes, with a line drawn between any two that come close. Here the
+  pointer joins the network as one more node, so moving the cursor pulls
+  links toward it.
+
+  Colors come from the theme tokens and follow the theme toggle. It pauses
+  when the hero is off screen; with reduced motion it draws one still frame.
+*/
+---
+
+<canvas class="hero-network" aria-hidden="true"></canvas>
+
+<style>
+  .hero-network {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+</style>
+
+<script>
+  const canvas = document.querySelector<HTMLCanvasElement>('.hero-network');
+  const host = canvas?.parentElement;
+  const ctx = canvas?.getContext('2d');
+
+  if (canvas && host && ctx) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const LINK = 140; // max distance (CSS px) for a link between two nodes
+    const POINTER_LINK = 180;
+    type Node = { x: number; y: number; vx: number; vy: number; r: number };
+    let nodes: Node[] = [];
+    let width = 0;
+    let height = 0;
+    let color = '140, 200, 255';
+    let running = false;
+    let visible = true;
+    let frame = 0;
+    const pointer = { x: -9999, y: -9999, active: false };
+
+    const readColor = () => {
+      // --signal is a hex color; convert to "r, g, b" for rgba().
+      const hex = getComputedStyle(document.documentElement).getPropertyValue('--signal').trim();
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+      if (m) {
+        const n = parseInt(m[1], 16);
+        color = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+      }
+    };
+
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = host.clientWidth;
+      height = host.clientHeight;
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Density scales with area: about 70 nodes on a large desktop, fewer on phones.
+      const count = Math.max(18, Math.min(70, Math.round((width * height) / 16000)));
+      nodes = Array.from({ length: count }, () => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: (Math.random() - 0.5) * 0.35,
+        r: Math.random() * 1.4 + 0.6,
+      }));
+    };
+
+    const draw = (move: boolean) => {
+      ctx.clearRect(0, 0, width, height);
+      for (const p of nodes) {
+        if (move) {
+          p.x += p.vx;
+          p.y += p.vy;
+          if (p.x < 0 || p.x > width) p.vx *= -1;
+          if (p.y < 0 || p.y > height) p.vy *= -1;
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${color}, 0.5)`;
+        ctx.fill();
+      }
+      ctx.lineWidth = 0.9;
+      for (let i = 0; i < nodes.length; i++) {
+        const a = nodes[i];
+        for (let j = i + 1; j < nodes.length; j++) {
+          const b = nodes[j];
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (d < LINK) {
+            ctx.strokeStyle = `rgba(${color}, ${(1 - d / LINK) * 0.16})`;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+        if (pointer.active) {
+          const d = Math.hypot(a.x - pointer.x, a.y - pointer.y);
+          if (d < POINTER_LINK) {
+            ctx.strokeStyle = `rgba(${color}, ${(1 - d / POINTER_LINK) * 0.35})`;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(pointer.x, pointer.y);
+            ctx.stroke();
+          }
+        }
+      }
+    };
+
+    const loop = () => {
+      draw(true);
+      frame = requestAnimationFrame(loop);
+    };
+
+    const start = () => {
+      if (running || reduce.matches || !visible) return;
+      running = true;
+      frame = requestAnimationFrame(loop);
+    };
+
+    const stop = () => {
+      running = false;
+      cancelAnimationFrame(frame);
+    };
+
+    readColor();
+    resize();
+    draw(false);
+    start();
+
+    let resizeTimer = 0;
+    window.addEventListener('resize', () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        resize();
+        draw(false);
+      }, 150);
+    });
+
+    host.addEventListener(
+      'pointermove',
+      (event) => {
+        const rect = host.getBoundingClientRect();
+        pointer.x = event.clientX - rect.left;
+        pointer.y = event.clientY - rect.top;
+        pointer.active = true;
+        if (!running) draw(false);
+      },
+      { passive: true },
+    );
+    host.addEventListener('pointerleave', () => {
+      pointer.active = false;
+      if (!running) draw(false);
+    });
+
+    new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) start();
+      else stop();
+    }).observe(host);
+
+    // Follow the theme toggle.
+    new MutationObserver(() => {
+      readColor();
+      if (!running) draw(false);
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    reduce.addEventListener('change', () => {
+      if (reduce.matches) {
+        stop();
+        draw(false);
+      } else start();
+    });
+  }
+</script>

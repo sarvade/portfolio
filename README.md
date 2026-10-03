@@ -53,6 +53,8 @@ Every push to `main` runs `.github/workflows/deploy.yml`: install, type-check, b
 
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
+If the Actions tab still shows a **pages build and deployment** run (with Jekyll errors), the source is still set to "Deploy from a branch". Switch it to GitHub Actions; until then that old job fails without publishing anything, and this workflow's deploy stays live.
+
 ### Moving to a custom domain
 
 In `astro.config.mjs`, set `site` to the new origin (e.g. `https://saisarvade.dev`) and `base` to `'/'`, add `public/CNAME` with the domain, then configure DNS as described in GitHub's Pages docs. Every link goes through `url()` in `src/lib/url.ts`, so nothing else needs to change.

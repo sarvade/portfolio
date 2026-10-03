@@ -3,6 +3,8 @@ import '../styles/global.css';
 import fontUrl from '../fonts/archivo-var-subset.woff2?url';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
+import CustomCursor from '../components/CustomCursor.astro';
+import PageMotion from '../components/PageMotion.astro';
 import { site } from '../data/profile';
 import { url, absoluteUrl } from '../lib/url';
 import { getPosts } from '../lib/content';
@@ -15,9 +17,11 @@ interface Props {
   /** ISO date for articles. */
   publishedTime?: string;
   jsonLd?: Record<string, unknown>;
+  /** Keep this page out of search results (used by the 404 page). */
+  noindex?: boolean;
 }
 
-const { title, description = site.description, type = 'website', publishedTime, jsonLd } = Astro.props;
+const { title, description = site.description, type = 'website', publishedTime, jsonLd, noindex = false } = Astro.props;
 
 const fullTitle = title ? `${title} | ${site.name}` : `${site.name} | ${site.role}`;
 const canonical = new URL(Astro.url.pathname, Astro.site).toString();
@@ -36,7 +40,7 @@ const consoleNote = `console.info(${JSON.stringify(
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <meta name="author" content={site.name} />
-    <link rel="canonical" href={canonical} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
     <link rel="preload" href={fontUrl} as="font" type="font/woff2" crossorigin="anonymous" />
 
     <link rel="icon" href={url('favicon.svg')} type="image/svg+xml" />
@@ -89,6 +93,8 @@ const consoleNote = `console.info(${JSON.stringify(
       <slot />
     </main>
     <SiteFooter />
+    <PageMotion />
+    <CustomCursor />
     <script is:inline set:html={consoleNote} />
   </body>
 </html>

@@ -3,6 +3,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import PipelineDiagram from '../components/PipelineDiagram.astro';
 import AtAGlance from '../components/AtAGlance.astro';
 import Approach from '../components/Approach.astro';
+import HeroNetwork from '../components/HeroNetwork.astro';
+import Typewriter from '../components/Typewriter.astro';
 import WorkList from '../components/WorkList.astro';
 import Experience from '../components/Experience.astro';
 import Skills from '../components/Skills.astro';
@@ -35,23 +37,33 @@ const jsonLd = {
 ---
 
 <BaseLayout jsonLd={jsonLd}>
-  <section class="hero container" aria-labelledby="hero-title">
-    <div class="hero-grid">
-      <div class="hero-main">
-        <h1 id="hero-title">{hero.headline}</h1>
-        <p class="hero-intro">{hero.intro}</p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="#work">See selected work</a>
-          <a class="btn btn-quiet" href={url(site.resume)}>Résumé (PDF)</a>
+  <section class="hero" aria-labelledby="hero-title">
+    <HeroNetwork />
+    <div class="container hero-inner">
+      <div class="hero-grid">
+        <div class="hero-main">
+          <p class="hero-kicker load-in" style="--d: 0.05s">
+            Hi, I’m Sai Sarvade, <Typewriter roles={hero.roles} />
+          </p>
+          <h1 id="hero-title" class="load-in" style="--d: 0.15s">{hero.headline}</h1>
+          <p class="hero-intro load-in" style="--d: 0.25s">{hero.intro}</p>
+          <div class="hero-actions load-in" style="--d: 0.35s">
+            <a class="btn btn-primary" href="#work">See selected work</a>
+            <a class="btn btn-quiet" href={url(site.resume)}>Résumé (PDF)</a>
+          </div>
+        </div>
+        <div class="load-in" style="--d: 0.45s">
+          <AtAGlance />
         </div>
       </div>
-      <AtAGlance />
+      <div class="load-in" style="--d: 0.55s">
+        <PipelineDiagram />
+      </div>
     </div>
-    <PipelineDiagram />
   </section>
 
   <section id="work" class="section" aria-labelledby="work-title">
-    <div class="container section-grid">
+    <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="work-title">Selected work</h2>
         <p>Case studies from TikTok and Delta Air Lines: the problem, the constraint, what I did, and the result. Internal names and details are left out on purpose.</p>
@@ -63,7 +75,7 @@ const jsonLd = {
   {
     projects.length > 0 && (
       <section id="projects" class="section" aria-labelledby="projects-title">
-        <div class="container section-grid">
+        <div class="container section-grid reveal">
           <div class="section-head">
             <h2 id="projects-title">Projects</h2>
             <p>Things I have built on my own time.</p>
@@ -75,7 +87,7 @@ const jsonLd = {
   }
 
   <section id="experience" class="section" aria-labelledby="experience-title">
-    <div class="container section-grid">
+    <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="experience-title">Experience</h2>
         <p>5+ years building data pipelines, canonical datasets, and the checks that keep them correct.</p>
@@ -85,7 +97,7 @@ const jsonLd = {
   </section>
 
   <section id="approach" class="section" aria-labelledby="approach-title">
-    <div class="container section-grid">
+    <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="approach-title">Approach</h2>
         <p>Four habits behind the work above. Each comes with the pattern it boils down to; the snippets are illustrative, not production code.</p>
@@ -95,7 +107,7 @@ const jsonLd = {
   </section>
 
   <section id="skills" class="section" aria-labelledby="skills-title">
-    <div class="container section-grid">
+    <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="skills-title">Skills</h2>
         <p>Highlighted skills link to a case study where I used them.</p>
@@ -105,7 +117,7 @@ const jsonLd = {
   </section>
 
   <section id="about" class="section" aria-labelledby="about-title">
-    <div class="container section-grid">
+    <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="about-title">About</h2>
       </div>
@@ -116,7 +128,7 @@ const jsonLd = {
   {
     posts.length > 0 && (
       <section id="writing" class="section" aria-labelledby="writing-title">
-        <div class="container section-grid">
+        <div class="container section-grid reveal">
           <div class="section-head">
             <h2 id="writing-title">Writing</h2>
             <p>
@@ -130,7 +142,7 @@ const jsonLd = {
   }
 
   <section id="contact" class="section" aria-labelledby="contact-title">
-    <div class="container section-grid">
+    <div class="container section-grid reveal">
       <div class="section-head">
         <h2 id="contact-title">Get in touch</h2>
         <p>Email is the fastest way to reach me.</p>
@@ -142,8 +154,47 @@ const jsonLd = {
 
 <style>
   .hero {
+    position: relative;
+    overflow: hidden;
     padding-top: clamp(3rem, 1.5rem + 6vw, 7rem);
     padding-bottom: var(--space-8);
+    /* Soft glows behind the headline and the card */
+    background:
+      radial-gradient(60rem 36rem at 20% 0%, color-mix(in srgb, var(--signal) 9%, transparent), transparent 70%),
+      radial-gradient(28rem 22rem at 88% 30%, color-mix(in srgb, var(--signal) 6%, transparent), transparent 70%);
+  }
+
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-kicker {
+    margin-bottom: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-md);
+    line-height: 1.4;
+    min-height: 1.4em;
+  }
+
+  @media (max-width: 519px) {
+    .hero-kicker :global(.typewriter) {
+      display: block;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .load-in {
+      animation: load-in 0.7s ease both;
+      animation-delay: var(--d, 0s);
+    }
+  }
+
+  @keyframes load-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
   }
 
   .hero-grid {

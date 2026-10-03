@@ -22,8 +22,10 @@ export const site = {
 
 export const hero = {
   headline: 'I turn raw logs into numbers people can trust.',
+  /** Typed one after another after "Hi, I’m Sai Sarvade,". Keep each short (under 26 characters). */
+  roles: ['a data engineer', 'an AI builder', 'a creator', 'a pipeline builder', 'a data quality advocate'],
   intro:
-    'I’m Sai Sarvade, a data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly four years building data pipelines at Delta Air Lines.',
+    'Data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly four years building data pipelines at Delta Air Lines.',
   /**
    * Optional line shown in the at-a-glance card, e.g. 'Open to senior data engineering roles'.
    * Leave empty to hide it.
