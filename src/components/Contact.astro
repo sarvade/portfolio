@@ -1,0 +1,91 @@
+---
+import { site } from '../data/profile';
+import { url } from '../lib/url';
+---
+
+<div class="contact">
+  <div class="email-row">
+    <a class="email" href={`mailto:${site.email}`}>{site.email}</a>
+    <button class="copy btn btn-quiet btn-small" type="button" data-copy={site.email}>Copy email</button>
+    <span class="copy-status visually-hidden" role="status" aria-live="polite"></span>
+  </div>
+
+  <ul class="contact-links">
+    <li><a href={site.links.linkedin}>LinkedIn</a></li>
+    <li><a href={site.links.github}>GitHub</a></li>
+    <li><a href={url(site.resume)}>Résumé (PDF)</a></li>
+    <li><a href={url('resume.json')}>Résumé as JSON</a></li>
+  </ul>
+  <p class="location">Based in {site.location}.</p>
+</div>
+
+<style>
+  .email-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+  }
+
+  .email {
+    color: var(--text);
+    font-size: clamp(1.5rem, 0.95rem + 2.9vw, 3rem);
+    font-weight: 700;
+    font-stretch: 112%;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+    text-decoration-color: var(--signal);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.16em;
+  }
+
+  .email:hover {
+    color: var(--signal);
+  }
+
+  .copy {
+    display: none;
+  }
+
+  :global(.js) .copy {
+    display: inline-flex;
+  }
+
+  .contact-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+    margin-top: var(--space-6);
+    padding: 0;
+    list-style: none;
+    font-weight: 600;
+  }
+
+  .location {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+</style>
+
+<script>
+  const button = document.querySelector<HTMLButtonElement>('.copy');
+  const status = document.querySelector<HTMLElement>('.copy-status');
+
+  button?.addEventListener('click', async () => {
+    const text = button.dataset.copy ?? '';
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = 'Copied';
+      if (status) status.textContent = 'Email address copied to the clipboard.';
+    } catch {
+      button.textContent = 'Copy failed';
+      if (status) status.textContent = 'Copying is blocked in this browser. Select the address to copy it.';
+    }
+    window.setTimeout(() => {
+      button.textContent = 'Copy email';
+      if (status) status.textContent = '';
+    }, 2500);
+  });
+</script>

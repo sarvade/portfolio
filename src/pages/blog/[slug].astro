@@ -1,0 +1,92 @@
+---
+import '@fontsource-variable/jetbrains-mono/wght.css';
+import { render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getPosts, type PostEntry } from '../../lib/content';
+import { formatDate, isoDate, readingTime } from '../../lib/format';
+import { url } from '../../lib/url';
+
+export async function getStaticPaths() {
+  const posts = await getPosts();
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+
+interface Props {
+  post: PostEntry;
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const { title, description, pubDate, updatedDate, tags } = post.data;
+---
+
+<BaseLayout title={title} description={description} type="article" publishedTime={pubDate.toISOString()}>
+  <article class="container post">
+    <a class="back" href={url('blog/')}>All posts</a>
+
+    <header class="post-head">
+      <h1>{title}</h1>
+      <p class="post-meta">
+        <time datetime={isoDate(pubDate)}>{formatDate(pubDate)}</time>
+        <span>{readingTime(post.body)}</span>
+        {
+          updatedDate && (
+            <span>
+              Updated <time datetime={isoDate(updatedDate)}>{formatDate(updatedDate)}</time>
+            </span>
+          )
+        }
+        {post.data.draft && <span class="draft">Draft, only visible in dev</span>}
+      </p>
+    </header>
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    {
+      tags.length > 0 && (
+        <ul class="tag-list post-tags" aria-label="Tags">
+          {tags.map((tag) => (
+            <li>{tag}</li>
+          ))}
+        </ul>
+      )
+    }
+  </article>
+</BaseLayout>
+
+<style>
+  .post {
+    padding-top: var(--space-7);
+    padding-bottom: var(--space-9);
+  }
+
+  .back {
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .post-head {
+    max-width: var(--measure);
+    margin-top: var(--space-6);
+    margin-bottom: var(--space-6);
+  }
+
+  .post-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-5);
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .draft {
+    color: var(--caution);
+  }
+
+  .post-tags {
+    margin-top: var(--space-7);
+  }
+</style>

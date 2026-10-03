@@ -1,0 +1,75 @@
+---
+import type { PostEntry } from '../lib/content';
+import { url } from '../lib/url';
+import { formatDate, isoDate } from '../lib/format';
+
+interface Props {
+  posts: PostEntry[];
+  headingLevel?: 'h2' | 'h3';
+}
+const { posts, headingLevel = 'h3' } = Astro.props;
+const Heading = headingLevel;
+---
+
+<ul class="post-list">
+  {
+    posts.map((post) => (
+      <li class="post-row">
+        <Heading class="post-title">
+          <a href={url(`blog/${post.id}/`)}>{post.data.title}</a>
+        </Heading>
+        <p class="post-desc">{post.data.description}</p>
+        <p class="post-date">
+          <time datetime={isoDate(post.data.pubDate)}>{formatDate(post.data.pubDate)}</time>
+          {post.data.draft && <span class="draft"> (draft, only visible in dev)</span>}
+        </p>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .post-list {
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--rule);
+  }
+
+  .post-row {
+    display: grid;
+    gap: var(--space-2);
+    padding-block: var(--space-5);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .post-title {
+    font-size: var(--text-md);
+    font-stretch: 106%;
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .post-title a {
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .post-title a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+  }
+
+  .post-desc {
+    color: var(--text-muted);
+    max-width: 62ch;
+  }
+
+  .post-date {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .draft {
+    color: var(--caution);
+  }
+</style>

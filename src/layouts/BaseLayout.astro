@@ -1,0 +1,100 @@
+---
+import '../styles/global.css';
+import fontUrl from '../fonts/archivo-var-subset.woff2?url';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import { site } from '../data/profile';
+import { url, absoluteUrl } from '../lib/url';
+import { getPosts } from '../lib/content';
+
+interface Props {
+  /** Page title. Leave out on the home page. */
+  title?: string;
+  description?: string;
+  type?: 'website' | 'article';
+  /** ISO date for articles. */
+  publishedTime?: string;
+  jsonLd?: Record<string, unknown>;
+}
+
+const { title, description = site.description, type = 'website', publishedTime, jsonLd } = Astro.props;
+
+const fullTitle = title ? `${title} | ${site.name}` : `${site.name} | ${site.role}`;
+const canonical = new URL(Astro.url.pathname, Astro.site).toString();
+const ogImage = absoluteUrl('og.png', Astro.site);
+const hasPosts = (await getPosts()).length > 0;
+const consoleNote = `console.info(${JSON.stringify(
+  `Hi, fellow engineer. This site is static HTML from Astro: no framework runtime, no trackers.\nSource: ${site.links.source}\nMy résumé as data: ${absoluteUrl('resume.json', Astro.site)}`,
+)});`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="author" content={site.name} />
+    <link rel="canonical" href={canonical} />
+    <link rel="preload" href={fontUrl} as="font" type="font/woff2" crossorigin="anonymous" />
+
+    <link rel="icon" href={url('favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={url('favicon-32.png')} type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href={url('apple-touch-icon.png')} />
+    <link rel="sitemap" href={url('sitemap-index.xml')} />
+    {hasPosts && <link rel="alternate" type="application/rss+xml" title={`${site.name}: writing`} href={url('rss.xml')} />}
+
+    <meta name="theme-color" content="#0b1a2b" />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={`${site.name}, ${site.role}`} />
+    {publishedTime && <meta property="article:published_time" content={publishedTime} />}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <script is:inline>
+      // Runs before first paint: apply the saved theme (or the system one) and flag JS support.
+      (function () {
+        var theme;
+        try {
+          theme = localStorage.getItem('theme');
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        root.classList.add('js');
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'light' ? '#f5f8fb' : '#0b1a2b');
+      })();
+    </script>
+
+    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <SiteHeader hasPosts={hasPosts} />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <SiteFooter />
+    <script is:inline set:html={consoleNote} />
+  </body>
+</html>
+
+<style>
+  main:focus {
+    outline: none;
+  }
+</style>

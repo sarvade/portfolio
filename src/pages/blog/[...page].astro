@@ -1,0 +1,47 @@
+---
+/*
+  Blog index at /portfolio/blog/.
+  It is only generated once at least one post exists, so there is never an
+  empty page to find or index.
+*/
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PostList from '../../components/PostList.astro';
+import { getPosts, type PostEntry } from '../../lib/content';
+
+export async function getStaticPaths() {
+  const posts = await getPosts();
+  if (posts.length === 0) return [];
+  return [{ params: { page: undefined }, props: { posts } }];
+}
+
+interface Props {
+  posts: PostEntry[];
+}
+const { posts } = Astro.props;
+---
+
+<BaseLayout title="Writing" description="Notes on data engineering by Sai S Sarvade.">
+  <div class="container blog-index">
+    <header>
+      <h1>Writing</h1>
+      <p>Notes on data engineering: pipelines, metrics, and data quality.</p>
+    </header>
+    <PostList posts={posts} headingLevel="h2" />
+  </div>
+</BaseLayout>
+
+<style>
+  .blog-index {
+    padding-top: var(--space-7);
+    padding-bottom: var(--space-9);
+  }
+
+  header {
+    margin-bottom: var(--space-6);
+  }
+
+  header p {
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+  }
+</style>

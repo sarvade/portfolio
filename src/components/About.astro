@@ -1,0 +1,142 @@
+---
+import { Image } from 'astro:assets';
+import headshot from '../assets/headshot.jpg';
+import { about, education, site } from '../data/profile';
+---
+
+<div class="about">
+  <div class="about-text">
+    {about.paragraphs.map((text) => <p>{text}</p>)}
+  </div>
+
+  <Image
+    class="headshot"
+    src={headshot}
+    alt={`Portrait of ${site.name}`}
+    widths={[240, 360, 480]}
+    sizes="(min-width: 960px) 240px, (min-width: 640px) 200px, 160px"
+    loading="lazy"
+    decoding="async"
+  />
+
+  <div class="education">
+    <h3>Education</h3>
+    <ul>
+      {
+        education.map((item) => (
+          <li>
+            <p class="edu-school">{item.school}</p>
+            <p>
+              {item.degree}
+              {item.detail && <span class="edu-detail">{item.detail}</span>}
+            </p>
+            <p class="edu-meta">
+              {item.place}, {item.years}
+            </p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</div>
+
+<style>
+  .about {
+    display: grid;
+    gap: var(--space-6);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'photo'
+      'text'
+      'edu';
+  }
+
+  .about-text {
+    grid-area: text;
+    max-width: var(--measure);
+  }
+
+  .about-text p + p {
+    margin-top: var(--space-4);
+  }
+
+  .about-text p:first-child {
+    font-size: var(--text-md);
+    line-height: 1.5;
+  }
+
+  .headshot {
+    grid-area: photo;
+    width: 160px;
+    height: auto;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    border-radius: var(--radius-m);
+    border: 1px solid var(--rule);
+  }
+
+  .education {
+    grid-area: edu;
+  }
+
+  .education h3 {
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--rule);
+    font-size: var(--text-base);
+    font-stretch: 110%;
+  }
+
+  .education ul {
+    display: grid;
+    gap: var(--space-5);
+    margin-top: var(--space-4);
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 640px) {
+    .education ul {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .edu-school {
+    font-weight: 650;
+    font-stretch: 106%;
+  }
+
+  .edu-detail {
+    display: block;
+    color: var(--text-muted);
+  }
+
+  .edu-meta {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (min-width: 640px) {
+    .about {
+      grid-template-columns: minmax(0, 1fr) 200px;
+      grid-template-areas:
+        'text photo'
+        'edu edu';
+      column-gap: var(--space-7);
+    }
+
+    .headshot {
+      width: 200px;
+    }
+  }
+
+  @media (min-width: 960px) {
+    .about {
+      grid-template-columns: minmax(0, 1fr) 240px;
+    }
+
+    .headshot {
+      width: 240px;
+    }
+  }
+</style>

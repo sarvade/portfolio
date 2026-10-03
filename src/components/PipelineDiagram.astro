@@ -1,0 +1,340 @@
+---
+import { pipeline as p } from '../data/profile';
+
+/*
+  Two drawings of the same pipeline: a wide one for desktop and a tall one
+  for phones. Moving dots use SVG <animateMotion> (no JavaScript needed).
+  Under prefers-reduced-motion the dots and the alert are hidden and the
+  diagram is static. A small script pauses the animation when off screen.
+*/
+
+const title = 'Diagram of my data pipelines at TikTok';
+const desc = `${p.source.label} (${p.source.note}) pass through ${p.checks.label.toLowerCase()} (${p.checks.note.toLowerCase()}) into ${p.canonical.label.toLowerCase()}, then ${p.metrics.label.toLowerCase()} (${p.metrics.note}). These feed ${p.outputs.join(', ').toLowerCase()}, reaching ${p.reach}. A record that fails a check stops at validation and raises an alert.`;
+
+// Wide layout geometry
+const W = { nodeW: 170, nodeH: 64, y: 108, cy: 140, xs: [0, 240, 480, 720], outX: 960, outW: 170, outH: 44, outCy: [50, 140, 230] };
+const wideNodes = [p.source, p.checks, p.canonical, p.metrics];
+
+// Tall layout geometry
+const T = { x: 60, nodeW: 220, nodeH: 56, ys: [0, 96, 192, 288], outY: 392, outW: 104, outH: 44, outXs: [0, 118, 236] };
+const tallNodes = [p.source, p.checks, p.canonical, p.metrics];
+
+// Packet schedule: [path id suffix, begin seconds]
+const packets: Array<[string, number]> = [
+  ['a', 0],
+  ['b', 1.4],
+  ['c', 2.8],
+  ['b', 4.2],
+  ['a', 5.6],
+];
+const cycle = 7;
+---
+
+<figure class="pipeline">
+  <div class="pipeline-canvas">
+    {/* ---------- Wide (desktop) ---------- */}
+    <svg class="pipeline-wide" viewBox="0 0 1130 290" role="img" aria-labelledby="pw-title pw-desc">
+      <title id="pw-title">{title}</title>
+      <desc id="pw-desc">{desc}</desc>
+      <defs>
+        <marker id="pw-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+          <path class="arrowhead" d="M0 0.5 L8 4 L0 7.5 Z"></path>
+        </marker>
+        <path id="pw-pa" d="M170 140 H890 C925 140 925 50 960 50 H1000"></path>
+        <path id="pw-pb" d="M170 140 H1000"></path>
+        <path id="pw-pc" d="M170 140 H650 C685 140 685 230 720 230 H1000"></path>
+        <path id="pw-pbad" d="M170 140 H232"></path>
+      </defs>
+
+      <g class="edges" marker-end="url(#pw-arrow)">
+        <path d="M170 140 H240"></path>
+        <path d="M410 140 H480"></path>
+        <path d="M650 140 H720"></path>
+        <path d="M890 140 C925 140 925 50 960 50"></path>
+        <path d="M890 140 H960"></path>
+        <path d="M650 140 C685 140 685 230 720 230 H960"></path>
+      </g>
+
+      <g class="motion" aria-hidden="true">
+        {
+          packets.map(([path, begin]) => (
+            <circle class="packet" r="4.5" opacity="0">
+              <animateMotion dur={`${cycle}s`} begin={`${begin}s`} repeatCount="indefinite">
+                <mpath href={`#pw-p${path}`} />
+              </animateMotion>
+              <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.03;0.95;1" dur={`${cycle}s`} begin={`${begin}s`} repeatCount="indefinite" />
+            </circle>
+          ))
+        }
+        <circle class="packet packet-bad" r="5" opacity="0">
+          <animateMotion dur="14s" begin="3.5s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.05;1">
+            <mpath href="#pw-pbad"></mpath>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.01;0.32;0.36;1" dur="14s" begin="3.5s" repeatCount="indefinite"></animate>
+        </circle>
+      </g>
+
+      <g class="nodes">
+        {
+          wideNodes.map((node, i) => (
+            <g class:list={['node', { 'node-gate': i === 1 }]}>
+              <rect x={W.xs[i]} y={W.y} width={W.nodeW} height={W.nodeH} rx="8" />
+              <text class="n-label" x={W.xs[i] + W.nodeW / 2} y={W.cy - 4} text-anchor="middle">
+                {node.label}
+              </text>
+              <text class="n-note" x={W.xs[i] + W.nodeW / 2} y={W.cy + 17} text-anchor="middle">
+                {node.note}
+              </text>
+            </g>
+          ))
+        }
+        {
+          p.outputs.map((label, i) => (
+            <g class="node node-out">
+              <rect x={W.outX} y={W.outCy[i] - W.outH / 2} width={W.outW} height={W.outH} rx="8" />
+              <text class="n-label n-label-out" x={W.outX + W.outW / 2} y={W.outCy[i] + 5} text-anchor="middle">
+                {label}
+              </text>
+            </g>
+          ))
+        }
+        <text class="n-note" x={W.outX + W.outW / 2} y="282" text-anchor="middle">{p.reach}</text>
+      </g>
+
+      <g class="alert" aria-hidden="true" opacity="0">
+        <rect class="alert-ring" x="240" y="108" width="170" height="64" rx="8"></rect>
+        <circle class="alert-dot" cx="268" cy="88" r="4"></circle>
+        <text class="alert-text" x="279" y="92.5">{p.alert}</text>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.05;0.07;0.32;0.36;1" dur="14s" begin="3.5s" repeatCount="indefinite"></animate>
+      </g>
+    </svg>
+
+    {/* ---------- Tall (phones) ---------- */}
+    <svg class="pipeline-tall" viewBox="0 0 340 470" role="img" aria-labelledby="pt-title pt-desc">
+      <title id="pt-title">{title}</title>
+      <desc id="pt-desc">{desc}</desc>
+      <defs>
+        <marker id="pt-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+          <path class="arrowhead" d="M0 0.5 L8 4 L0 7.5 Z"></path>
+        </marker>
+        <path id="pt-pa" d="M170 56 V344 C170 368 52 368 52 392 V410"></path>
+        <path id="pt-pb" d="M170 56 V410"></path>
+        <path id="pt-pc" d="M170 56 V220 H280 C318 220 318 250 318 280 V350 C318 372 288 370 288 392 V410"></path>
+        <path id="pt-pbad" d="M170 56 V88"></path>
+      </defs>
+
+      <g class="edges" marker-end="url(#pt-arrow)">
+        <path d="M170 56 V96"></path>
+        <path d="M170 152 V192"></path>
+        <path d="M170 248 V288"></path>
+        <path d="M170 344 C170 368 52 368 52 392"></path>
+        <path d="M170 344 V392"></path>
+        <path d="M280 220 C318 220 318 250 318 280 V350 C318 372 288 370 288 392"></path>
+      </g>
+
+      <g class="motion" aria-hidden="true">
+        {
+          packets.map(([path, begin]) => (
+            <circle class="packet" r="4" opacity="0">
+              <animateMotion dur={`${cycle}s`} begin={`${begin}s`} repeatCount="indefinite">
+                <mpath href={`#pt-p${path}`} />
+              </animateMotion>
+              <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.03;0.95;1" dur={`${cycle}s`} begin={`${begin}s`} repeatCount="indefinite" />
+            </circle>
+          ))
+        }
+        <circle class="packet packet-bad" r="4.5" opacity="0">
+          <animateMotion dur="14s" begin="3.5s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.05;1">
+            <mpath href="#pt-pbad"></mpath>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.01;0.32;0.36;1" dur="14s" begin="3.5s" repeatCount="indefinite"></animate>
+        </circle>
+      </g>
+
+      <g class="nodes">
+        {
+          tallNodes.map((node, i) => (
+            <g class:list={['node', { 'node-gate': i === 1 }]}>
+              <rect x={T.x} y={T.ys[i]} width={T.nodeW} height={T.nodeH} rx="8" />
+              <text class="n-label" x={T.x + T.nodeW / 2} y={T.ys[i] + 25} text-anchor="middle">
+                {node.label}
+              </text>
+              <text class="n-note" x={T.x + T.nodeW / 2} y={T.ys[i] + 43} text-anchor="middle">
+                {node.note}
+              </text>
+            </g>
+          ))
+        }
+        {
+          p.outputsShort.map((label, i) => (
+            <g class="node node-out">
+              <rect x={T.outXs[i]} y={T.outY} width={T.outW} height={T.outH} rx="8" />
+              <text class="n-label n-label-out" x={T.outXs[i] + T.outW / 2} y={T.outY + 27} text-anchor="middle">
+                {label}
+              </text>
+            </g>
+          ))
+        }
+        <text class="n-note" x="170" y="462" text-anchor="middle">{p.reach}</text>
+      </g>
+
+      <g class="alert" aria-hidden="true" opacity="0">
+        <rect class="alert-ring" x="60" y="96" width="220" height="56" rx="8"></rect>
+        <circle class="alert-dot" cx="190" cy="76" r="3.5"></circle>
+        <text class="alert-text" x="200" y="80.5">{p.alert}</text>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.05;0.07;0.32;0.36;1" dur="14s" begin="3.5s" repeatCount="indefinite"></animate>
+      </g>
+    </svg>
+  </div>
+  <figcaption>{p.caption}</figcaption>
+</figure>
+
+<style>
+  .pipeline {
+    margin-top: var(--space-8);
+  }
+
+  .pipeline-canvas {
+    padding: clamp(1.25rem, 0.6rem + 2.6vw, 2.75rem);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    /* Drafting grid */
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: -1px -1px;
+  }
+
+  .pipeline svg {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .pipeline-tall {
+    max-width: 420px;
+    margin-inline: auto;
+  }
+
+  .pipeline-wide {
+    display: none;
+  }
+
+  @media (min-width: 860px) {
+    .pipeline-wide {
+      display: block;
+    }
+
+    .pipeline-tall {
+      display: none;
+    }
+  }
+
+  figcaption {
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .edges {
+    fill: none;
+    stroke: var(--rule-strong);
+    stroke-width: 1.5;
+  }
+
+  .arrowhead {
+    fill: var(--rule-strong);
+    stroke: none;
+  }
+
+  .node rect {
+    fill: var(--bg);
+    stroke: var(--rule-strong);
+    stroke-width: 1.25;
+  }
+
+  .node-gate rect {
+    stroke: var(--signal);
+    stroke-width: 1.5;
+  }
+
+  .n-label {
+    fill: var(--text);
+    font-size: 16px;
+    font-weight: 650;
+    font-stretch: 108%;
+  }
+
+  .n-label-out {
+    font-size: 15px;
+    font-weight: 600;
+    font-stretch: 100%;
+  }
+
+  .n-note {
+    fill: var(--text-muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pipeline-tall .n-label {
+    font-size: 15px;
+  }
+
+  .pipeline-tall .n-label-out {
+    font-size: 13.5px;
+  }
+
+  .pipeline-tall .n-note {
+    font-size: 12.5px;
+  }
+
+  .packet {
+    fill: var(--signal);
+  }
+
+  .packet-bad,
+  .alert-dot {
+    fill: var(--caution);
+  }
+
+  .alert-ring {
+    fill: color-mix(in srgb, var(--caution) 10%, transparent);
+    stroke: var(--caution);
+    stroke-width: 2;
+  }
+
+  .alert-text {
+    fill: var(--caution);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .motion,
+    .alert {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  // Pause the SVG animation while it is off screen or when reduced motion is requested.
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const drawings = Array.from(document.querySelectorAll<SVGSVGElement>('.pipeline svg'));
+
+  const update = (svg: SVGSVGElement, visible: boolean) => {
+    if (visible && !reduce.matches) svg.unpauseAnimations();
+    else svg.pauseAnimations();
+  };
+
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) update(entry.target as SVGSVGElement, entry.isIntersecting);
+    });
+    drawings.forEach((svg) => observer.observe(svg));
+  }
+
+  reduce.addEventListener('change', () => drawings.forEach((svg) => update(svg, !reduce.matches)));
+</script>

@@ -1,0 +1,145 @@
+---
+import type { WorkEntry } from '../lib/content';
+import { url } from '../lib/url';
+
+interface Props {
+  items: WorkEntry[];
+}
+const { items } = Astro.props;
+---
+
+<ul class="work-list">
+  {
+    items.map((item) => (
+      <li class="work-row">
+        <h3 class="work-title">
+          <a href={url(`work/${item.id}/`)}>{item.data.title}</a>
+        </h3>
+        <p class="work-summary">{item.data.summary}</p>
+        <p class="work-figure">
+          <span class="work-value">{item.data.headline.value}</span>
+          <span class="work-label">{item.data.headline.label}</span>
+        </p>
+        <p class="work-org">
+          {item.data.org}
+          {item.data.period && <span class="work-period">{item.data.period}</span>}
+        </p>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .work-list {
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--rule);
+  }
+
+  .work-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'figure'
+      'title'
+      'summary'
+      'org';
+    gap: var(--space-2);
+    padding: var(--space-5) var(--space-2);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .work-row:hover {
+    background: var(--surface);
+  }
+
+  .work-title {
+    grid-area: title;
+  }
+
+  .work-title a {
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  /* The whole row is the click target; the link stays the accessible name. */
+  .work-title a::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+
+  .work-row:hover .work-title a {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+
+  .work-title a:focus-visible {
+    outline: none;
+  }
+
+  .work-title a:focus-visible::after {
+    outline: 2px solid var(--signal);
+    outline-offset: -2px;
+    border-radius: var(--radius-s);
+  }
+
+  .work-summary {
+    grid-area: summary;
+    color: var(--text-muted);
+    max-width: 60ch;
+  }
+
+  .work-figure {
+    grid-area: figure;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .work-value {
+    color: var(--signal);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    font-stretch: 125%;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums lining-nums;
+    white-space: nowrap;
+  }
+
+  .work-label {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: 1.35;
+    max-width: 24ch;
+  }
+
+  .work-org {
+    grid-area: org;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .work-period::before {
+    content: ', ';
+  }
+
+  @media (min-width: 640px) {
+    .work-row {
+      grid-template-columns: minmax(10rem, 3fr) minmax(0, 7fr);
+      grid-template-areas:
+        'figure title'
+        'figure summary'
+        'figure org';
+      column-gap: var(--space-6);
+      padding-block: var(--space-6);
+    }
+
+    .work-org {
+      margin-top: var(--space-1);
+    }
+  }
+</style>

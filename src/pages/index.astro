@@ -1,0 +1,185 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PipelineDiagram from '../components/PipelineDiagram.astro';
+import AtAGlance from '../components/AtAGlance.astro';
+import Approach from '../components/Approach.astro';
+import WorkList from '../components/WorkList.astro';
+import Experience from '../components/Experience.astro';
+import Skills from '../components/Skills.astro';
+import About from '../components/About.astro';
+import Contact from '../components/Contact.astro';
+import PostList from '../components/PostList.astro';
+import { hero, site } from '../data/profile';
+import { getCaseStudies, getProjects, getPosts } from '../lib/content';
+import { url, absoluteUrl } from '../lib/url';
+
+const caseStudies = await getCaseStudies();
+const projects = await getProjects();
+const posts = (await getPosts()).slice(0, 3);
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Person',
+  name: site.name,
+  jobTitle: site.role,
+  worksFor: { '@type': 'Organization', name: 'TikTok' },
+  alumniOf: [
+    { '@type': 'CollegeOrUniversity', name: 'Rice University' },
+    { '@type': 'CollegeOrUniversity', name: 'Amrita Vishwa Vidyapeetham' },
+  ],
+  address: { '@type': 'PostalAddress', addressLocality: 'San Jose', addressRegion: 'CA', addressCountry: 'US' },
+  email: `mailto:${site.email}`,
+  url: absoluteUrl('', Astro.site),
+  sameAs: [site.links.linkedin, site.links.github],
+};
+---
+
+<BaseLayout jsonLd={jsonLd}>
+  <section class="hero container" aria-labelledby="hero-title">
+    <div class="hero-grid">
+      <div class="hero-main">
+        <h1 id="hero-title">{hero.headline}</h1>
+        <p class="hero-intro">{hero.intro}</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#work">See selected work</a>
+          <a class="btn btn-quiet" href={url(site.resume)}>Résumé (PDF)</a>
+        </div>
+      </div>
+      <AtAGlance />
+    </div>
+    <PipelineDiagram />
+  </section>
+
+  <section id="work" class="section" aria-labelledby="work-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="work-title">Selected work</h2>
+        <p>Case studies from TikTok and Delta Air Lines: the problem, the constraint, what I did, and the result. Internal names and details are left out on purpose.</p>
+      </div>
+      <WorkList items={caseStudies} />
+    </div>
+  </section>
+
+  {
+    projects.length > 0 && (
+      <section id="projects" class="section" aria-labelledby="projects-title">
+        <div class="container section-grid">
+          <div class="section-head">
+            <h2 id="projects-title">Projects</h2>
+            <p>Things I have built on my own time.</p>
+          </div>
+          <WorkList items={projects} />
+        </div>
+      </section>
+    )
+  }
+
+  <section id="experience" class="section" aria-labelledby="experience-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="experience-title">Experience</h2>
+        <p>5+ years building data pipelines, canonical datasets, and the checks that keep them correct.</p>
+      </div>
+      <Experience />
+    </div>
+  </section>
+
+  <section id="approach" class="section" aria-labelledby="approach-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="approach-title">Approach</h2>
+        <p>Four habits behind the work above. Each comes with the pattern it boils down to; the snippets are illustrative, not production code.</p>
+      </div>
+      <Approach />
+    </div>
+  </section>
+
+  <section id="skills" class="section" aria-labelledby="skills-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="skills-title">Skills</h2>
+        <p>Highlighted skills link to a case study where I used them.</p>
+      </div>
+      <Skills />
+    </div>
+  </section>
+
+  <section id="about" class="section" aria-labelledby="about-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="about-title">About</h2>
+      </div>
+      <About />
+    </div>
+  </section>
+
+  {
+    posts.length > 0 && (
+      <section id="writing" class="section" aria-labelledby="writing-title">
+        <div class="container section-grid">
+          <div class="section-head">
+            <h2 id="writing-title">Writing</h2>
+            <p>
+              Notes on data engineering. <a href={url('blog/')}>All posts</a>
+            </p>
+          </div>
+          <PostList posts={posts} />
+        </div>
+      </section>
+    )
+  }
+
+  <section id="contact" class="section" aria-labelledby="contact-title">
+    <div class="container section-grid">
+      <div class="section-head">
+        <h2 id="contact-title">Get in touch</h2>
+        <p>Email is the fastest way to reach me.</p>
+      </div>
+      <Contact />
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero {
+    padding-top: clamp(3rem, 1.5rem + 6vw, 7rem);
+    padding-bottom: var(--space-8);
+  }
+
+  .hero-grid {
+    display: grid;
+    gap: var(--space-7);
+    align-items: end;
+  }
+
+  @media (min-width: 1080px) {
+    .hero-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
+      gap: var(--space-8);
+    }
+  }
+
+  .hero h1 {
+    max-width: 15ch;
+    font-size: var(--text-hero);
+    font-stretch: 125%;
+    font-weight: 760;
+    letter-spacing: -0.03em;
+    line-height: 1.02;
+  }
+
+  .hero-intro {
+    max-width: 58ch;
+    margin-top: var(--space-5);
+    color: var(--text-muted);
+    font-size: var(--text-md);
+    line-height: 1.5;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+  }
+</style>

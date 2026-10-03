@@ -1,0 +1,230 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+import { site } from '../data/profile';
+import { url } from '../lib/url';
+
+interface Props {
+  hasPosts: boolean;
+}
+const { hasPosts } = Astro.props;
+
+const links = [
+  { href: url('#work'), label: 'Work', section: 'work' },
+  { href: url('#experience'), label: 'Experience', section: 'experience' },
+  { href: url('#approach'), label: 'Approach', section: 'approach' },
+  { href: url('#skills'), label: 'Skills', section: 'skills' },
+  { href: url('#about'), label: 'About', section: 'about' },
+  ...(hasPosts ? [{ href: url('blog/'), label: 'Writing', section: 'writing' }] : []),
+  { href: url('#contact'), label: 'Contact', section: 'contact' },
+];
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="wordmark" href={url()}>{site.name}</a>
+
+    <nav class="primary-nav" aria-label="Primary">
+      <button class="menu-toggle btn btn-quiet btn-small" type="button" aria-expanded="false" aria-controls="nav-links">
+        Menu
+      </button>
+      <ul id="nav-links" class="nav-links">
+        {
+          links.map((link) => (
+            <li>
+              <a href={link.href} data-section={link.section}>
+                {link.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="header-actions">
+      <a class="btn btn-quiet btn-small" href={url(site.resume)}>Résumé (PDF)</a>
+      <ThemeToggle />
+    </div>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .header-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    min-height: var(--header-h);
+  }
+
+  .wordmark {
+    color: var(--text);
+    font-weight: 700;
+    font-stretch: 118%;
+    font-size: 1.0625rem;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .wordmark:hover {
+    color: var(--text);
+  }
+
+  .primary-nav {
+    margin-left: auto;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: var(--space-1);
+    padding: 0;
+    list-style: none;
+  }
+
+  .nav-links a {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .nav-links a:hover,
+  .nav-links a[aria-current] {
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .menu-toggle {
+    display: none;
+  }
+
+  /* Narrow screens: links collapse behind the Menu button (only when JS is available). */
+  @media (max-width: 899px) {
+    .header-inner {
+      flex-wrap: wrap;
+      gap: var(--space-3);
+    }
+
+    .primary-nav {
+      order: 3;
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .nav-links {
+      flex-wrap: wrap;
+      padding-bottom: var(--space-3);
+    }
+
+    .header-actions {
+      margin-left: auto;
+    }
+
+    :global(.js) .header-inner {
+      flex-wrap: nowrap;
+    }
+
+    :global(.js) .primary-nav {
+      order: 0;
+      width: auto;
+      margin-left: auto;
+    }
+
+    :global(.js) .header-actions {
+      margin-left: 0;
+    }
+
+    :global(.js) .menu-toggle {
+      display: inline-flex;
+    }
+
+    :global(.js) .nav-links {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      flex-direction: column;
+      gap: 0;
+      padding: var(--space-2) var(--gutter) var(--space-4);
+      background: var(--bg);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    :global(.js) .nav-links[data-open] {
+      display: flex;
+    }
+
+    :global(.js) .nav-links a {
+      padding: var(--space-3) var(--space-2);
+      font-size: var(--text-base);
+    }
+  }
+
+  @media (max-width: 479px) {
+    .header-actions .btn {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>('.menu-toggle');
+  const list = document.getElementById('nav-links');
+
+  if (toggle && list) {
+    const setOpen = (open: boolean) => {
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.textContent = open ? 'Close' : 'Menu';
+      list.toggleAttribute('data-open', open);
+    };
+    toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+    list.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('a')) setOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && toggle.getAttribute('aria-expanded') === 'true') {
+        setOpen(false);
+        toggle.focus();
+      }
+    });
+  }
+
+  // Mark the nav link for the section currently in view (home page only).
+  const navLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.nav-links a[data-section]'));
+  const sections = navLinks
+    .map((link) => document.getElementById(link.dataset.section ?? ''))
+    .filter((el): el is HTMLElement => el !== null);
+
+  if (sections.length > 0 && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          for (const link of navLinks) {
+            if (link.dataset.section === entry.target.id) link.setAttribute('aria-current', 'location');
+            else link.removeAttribute('aria-current');
+          }
+        }
+      },
+      { rootMargin: '-45% 0px -50% 0px' },
+    );
+    sections.forEach((section) => observer.observe(section));
+  }
+</script>
