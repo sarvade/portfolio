@@ -3,7 +3,6 @@ title: 'Same-day P1 restore, then designing out a false assumption'
 summary: A creator-facing feature vanished in a P1 and I restored it the same day. When two APIs later contradicted each other, I traced both to one table built on a false assumption, caught my own first fix corrupting 67,565 rows before it shipped, and then dropped that validated fix for a simpler design in which the two can’t disagree.
 org: TikTok
 order: 4
-featured: true
 headline:
   value: '67,565'
   label: corrupted rows my validation caught in my own first fix, before it shipped
@@ -91,7 +90,7 @@ In review, my tech lead raised two things. A job that reads its own previous out
 I took that question to the team that runs the OLAP store, and backend confirmed that every call to both APIs is scoped to a single creator. That made the simpler design viable. I added the badge flag to the table the list already reads and updated its sync, so the list API returns the badge directly. Two answers can't diverge when they come from one row. My tech lead and I chose this over my validated cumulative job, and the second store is slated for retirement.
 
 <Callout label="The call">
-  The fix I had already built and validated was not the best fix. Patching two copies keeps two copies that can drift. Removing one of them makes the whole class of failure impossible by construction.
+  I had a working, validated fix and still dropped it. Two copies kept in sync can drift apart again later. With one copy, there is nothing left to drift.
 </Callout>
 
 <Architecture
@@ -129,7 +128,7 @@ I took that question to the team that runs the OLAP store, and backend confirmed
       question: 'Should a badge be permanent, or re-evaluated daily?',
       chose: 'Ask the product owner (she chose permanent)',
       over: 'Inferring intent from how the code behaved',
-      why: 'The spec was silent on a badge being taken away. That is a product decision, not an engineering inference.',
+      why: 'The spec said nothing about a badge being taken away. That made it a product decision, so I asked instead of guessing.',
     },
     {
       question: 'Where should the fix live?',
@@ -140,11 +139,11 @@ I took that question to the team that runs the OLAP store, and backend confirmed
   ]}
 />
 
-While working through the new design I also found that the list table's partition retention caps history at about six months, which quietly turns "the badge never disappears" into "the badge disappears after six months". Catching that in a table definition, rather than in a creator's complaint six months later, is why I read configuration as carefully as code.
+While working through the new design I also found that the list table's partition retention caps history at about six months, which quietly turns "the badge never disappears" into "the badge disappears after six months". Better to find that in a table definition than in a creator complaint six months later.
 
 ## Result
 
-Creators had the feature back within the day. The deeper fix came out of an explicit product decision rather than a guess, and product got a formal heads-up that the badge's behavior was changing, so nobody discovered it from a dashboard. My own validation caught my own bug before any creator saw it, which is the reason I insist on it.
+Creators had the feature back within the day. The deeper fix came from a clear product decision, and product got a formal heads-up that the badge's behavior was changing, so nobody discovered it from a dashboard. My own validation caught my own bug before any creator saw it, which is the reason I insist on it.
 
 **Status:** the one-table design is agreed and was scheduled with backend; it isn't confirmed live yet, and the six-month retention cap is still open.
 

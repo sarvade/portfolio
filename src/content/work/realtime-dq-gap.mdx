@@ -1,6 +1,6 @@
 ---
 title: The bug that wasn’t, and the 8% one that was
-summary: An escalation said a filter was broken. I disproved it layer by layer and closed it with receipts, then scaled the check to all 236 flagged items and isolated a real ~8% tagging gap to a single realtime job, while proving the offline table right on every item.
+summary: An escalation said a filter was broken. I checked it layer by layer, closed that theory with evidence, then ran the same check on all 236 flagged items. The offline table was right on every one; a real ~8% tagging gap sat in a single realtime job.
 org: TikTok
 order: 5
 headline:
@@ -9,7 +9,7 @@ headline:
 figures:
   - value: '236'
     label: flagged items checked in both pipelines
-  - value: '46M+'
+  - value: 'Tens of millions'
     label: rows in the daily partition, so not staleness
   - value: '0 / 236'
     label: offline mismatches
@@ -33,7 +33,7 @@ import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 Creators were seeing videos in their list with zero revenue and zero views, and leadership wanted to know why. The story everyone had already settled on was a broken filter for a new content type. Several people were treating it as a defect with a fix to find.
 
-If that story was wrong, the fix would ship, change nothing, and the real problem would stay buried under a closed ticket.
+If that story was wrong, a fix would ship, nothing would change, and the real problem would end up under a closed ticket.
 
 <Architecture
   title="Two paths to the same list: realtime and offline"
@@ -43,7 +43,7 @@ If that story was wrong, the fix would ship, change nothing, and the real proble
       name: 'Compute',
       nodes: [
         { label: 'Realtime Flink transform', note: 'my job; missing flag defaults to 0', tone: 'caution' },
-        { label: 'Offline daily batch', note: '46M+ rows a partition' },
+        { label: 'Offline daily batch', note: 'tens of millions of rows a day' },
       ],
     },
     {
@@ -70,26 +70,26 @@ If that story was wrong, the fix would ship, change nothing, and the real proble
 
 ## Eliminate layer by layer
 
-I worked it layer by layer, from the number the creator sees backwards, looking for the layer where it changes.
+I started from the number the creator sees and worked backwards one layer at a time, looking for the layer where it changes.
 
 <Flow
   title="Walking the lineage backwards"
   steps={[
     { label: 'Backend', note: 'passes the filter correctly' },
     { label: 'Warehouse query', note: 'applies it correctly' },
-    { label: 'Offline daily partition', note: '46M+ rows, fully populated' },
+    { label: 'Offline daily partition', note: 'fully populated' },
     { label: 'Realtime table', note: 'disagrees with offline', tone: 'caution' },
   ]}
 />
 
-A fully populated 46-million-row partition ruled out staleness, so any gap had to be item-specific. That killed the filter theory.
+The day's partition was complete, tens of millions of rows, so this wasn't stale data. Whatever was wrong had to be specific to certain items, which ruled out the filter theory.
 
 ## Close what isn't a bug, with receipts
 
-For the three items behind the escalation, I read the realtime Flink job instead of assuming. The flag is a raw passthrough from an upstream event stream another team owns, defaulted to zero when the event hasn't carried a value yet. That is a plausible false negative, so I waited 24 hours to rule out lag, then went to the ground-truth dimension table. All three genuinely were not the content type the ticket assumed. I closed that thread as not-a-bug, with the full evidence chain attached.
+For the three items behind the escalation, I read the realtime Flink job. The flag passes straight through from an upstream event stream that another team owns, and it defaults to zero when the event hasn't carried a value yet. That can produce false negatives, so I waited 24 hours to rule out lag and then checked the ground-truth dimension table. All three really were not the content type the ticket assumed. I closed that thread as not-a-bug and attached the evidence.
 
 <Callout label="The call">
-  Closing a ticket without a fix only works with evidence. The full chain went into the thread, and the investigation moved to where the data actually disagreed.
+  You can only close a ticket without a fix if you show your work. The evidence went into the thread, and the investigation moved to where the data actually disagreed.
 </Callout>
 
 ## Then find the one that is
@@ -106,7 +106,7 @@ I scaled the check from 3 items to all 236 that had been flagged, in both pipeli
   caption="Bars are drawn against all 236 items. Offline was correct on every one; the gap lives in the realtime path."
 />
 
-That isolated a real gap to the realtime pipeline, and specifically to my own realtime transform job rather than the upstream team's stream. The check itself is simple, which is why it is worth running before anyone writes a fix. As an illustrative pattern rather than production code:
+That put the gap in the realtime pipeline, specifically in my own realtime transform job and not in the upstream team's stream. The check is simple enough to run before anyone writes a fix. As an illustrative pattern, not production code:
 
 ```sql
 -- Same items, both pipelines, one expected value
@@ -122,7 +122,7 @@ left join realtime_view r
        on r.item_id = f.item_id;
 ```
 
-One open question could still reframe all of it: did the 236 items come from the live product page, or from a separate dashboard? If it was the dashboard, the investigation was scoped to the wrong surface, and the answer changes what "fixed" even means. It stays on the list until it is answered.
+One open question could still change the picture: did the 236 items come from the live product page or from a separate dashboard? If they came from the dashboard, we were investigating the wrong surface, and "fixed" would mean something different. It stays on the list until someone answers it.
 
 <Tradeoffs
   items={[
@@ -130,27 +130,27 @@ One open question could still reframe all of it: did the 236 items come from the
       question: 'Ship the filter fix everyone expected?',
       chose: 'Prove the cause first, layer by layer',
       over: 'Patch the filter and close the ticket',
-      why: 'Backend and the warehouse both applied the filter correctly. A fix there would have shipped, changed nothing, and buried the real gap.',
+      why: 'Backend and the warehouse both applied the filter correctly. A fix there would have changed nothing and hidden the real gap.',
     },
     {
       question: 'Three items checked out. Stop there?',
       chose: 'Close those three as not-a-bug, then scale the check to all 236',
       over: 'Closing the whole escalation as not-a-bug',
-      why: 'Three clean items say nothing about the other 233. The full set is what isolated the realtime path.',
+      why: 'Three clean items tell you nothing about the other 233. Checking the full set is what pointed at the realtime path.',
     },
   ]}
 />
 
 ## Where it stands
 
-The team stopped chasing a filter fix that would have changed nothing. The real gap is scoped to one job, and I set up a working group with the realtime, warehouse and product owners to close it. Once it closes, the next number here is the post-fix mismatch rate.
+The team stopped chasing a filter fix. The real gap is narrowed to one job, and I set up a working group with the realtime, warehouse and product owners to close it. When it's closed, I'll add the mismatch rate after the fix.
 
 ## What broke, and what changed
 
-- **A default can hide missing data.** The realtime job turns a flag the upstream event hasn’t carried yet into a zero, so “not known yet” looks exactly like “no”. That makes any zero in the realtime path suspect until ground truth confirms it, which is why I checked ground truth before believing one. The cause of the 19 is still open; a default like this is one way a zero can mislead.
-- **The source of the flagged list came up late.** Whether the 236 items came from the live page or a dashboard was raised partway through. It changes what “fixed” means, so it belongs at the start.
+- **A default can hide missing data.** The realtime job turns a flag the upstream event hasn’t carried yet into a zero, so “not known yet” looks the same as “no”. Any zero in that path needs checking against ground truth, which is what I did. What caused the 19 is still open; a default like this is one way a zero can mislead.
+- **The source of the flagged list came up late.** Whether the 236 items came from the live page or a dashboard was only raised partway through. It changes what “fixed” means, so it should be asked first.
 
 ## What I’d do differently now
 
 - Confirm where a flagged list came from (the live page or a dashboard) before the first query.
-- Emit a null rather than a zero when an upstream field hasn’t arrived, so missing data is visible instead of silently false.
+- Write a null when an upstream field hasn’t arrived, not a zero, so missing data shows up as missing.

@@ -1,6 +1,6 @@
 ---
 title: A serverless S3 data lake with GDPR and CCPA controls built in
-summary: I built a serverless data lake on S3, moved 15 TB into it with AWS DMS, and cataloged it through Glue Catalog and Lake Formation with the access controls GDPR and CCPA require, so governance lives in the platform rather than in a policy document.
+summary: I built a serverless data lake on S3, moved 15 TB into it with AWS DMS, and cataloged it through Glue Catalog and Lake Formation with the access controls GDPR and CCPA require, so the privacy rules are enforced by the platform itself.
 org: Delta Air Lines
 order: 13
 headline:
@@ -43,7 +43,7 @@ A serverless data lake on S3. I moved 15 TB into it with AWS Database Migration 
 />
 
 <Callout label="The principle">
-  Governance is a property of the platform, not a policy document. Putting the access controls in the catalog layer means every consumer that queries through the catalog inherits them.
+  Access rules belong in the platform. With the controls in the catalog layer, everyone who queries through the catalog gets them automatically.
 </Callout>
 
 ## Result

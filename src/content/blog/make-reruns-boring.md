@@ -8,13 +8,13 @@ tags:
   - reliability
 ---
 
-Every pipeline gets rerun. A task times out and retries. An upstream table lands late and you clear the day. Someone finds a bug and you backfill three months. The question isn't whether a job will run twice on the same input. It's what happens when it does.
+Every pipeline gets rerun. A task times out and retries. An upstream table lands late and you clear the day. Someone finds a bug and you backfill three months. Sooner or later a job runs twice on the same input. What matters is what happens when it does.
 
 If the answer is anything other than "nothing changes," the pipeline isn't finished.
 
-## Delivery is not effect
+## Delivered twice, applied once
 
-A message arriving twice is normal. A payment applied twice is a bug. Most systems promise at-least-once delivery, and that's fine, as long as the write at the end is idempotent: doing it twice has the same effect as doing it once. No scheduler gives you that property. You build it.
+A message arriving twice is normal. A payment applied twice is a bug. Most systems promise at-least-once delivery, and that's fine, as long as the write at the end is idempotent: doing it twice has the same effect as doing it once. No scheduler gives you that property; you have to build it.
 
 ## Pattern 1: overwrite the partition, don't append
 

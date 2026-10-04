@@ -3,7 +3,6 @@ title: Moving regulated data across a residency boundary with zero compliance fi
 summary: Analysts in one region were blocked on data governed by another region’s residency rules, and I couldn’t query the source directly. I set one pattern for every table, shipped the transfers with zero compliance findings, and replaced ad-hoc data requests with a self-serve dataset.
 org: TikTok
 order: 6
-featured: true
 headline:
   value: '0'
   label: compliance findings across every table I transferred
@@ -32,12 +31,12 @@ import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
-Analysts and data scientists in one region needed creator and seller data that lives under another region's data-residency rules. In that setting, one protected column crossing the boundary isn't a bug. It is a compliance incident. And I couldn't query the source directly to check my own work the usual way.
+Analysts and data scientists in one region needed creator and seller data that lives under another region's data-residency rules. In that setting, a single protected column crossing the boundary counts as a compliance incident. And I couldn't query the source directly to check my own work the usual way.
 
 ## The call
 
 <Callout label="The call">
-  No table is the easy one. Every table gets the same pattern, so correctness comes from the process instead of from remembering which tables were risky.
+  Every table went through the same steps, including the ones that looked simple. I didn’t want correctness to depend on remembering which tables were risky.
 </Callout>
 
 <Architecture
@@ -75,7 +74,7 @@ Analysts and data scientists in one region needed creator and seller data that l
       question: 'How do I know a transfer is right?',
       chose: 'Row-level validation across both regions',
       over: 'Trusting job completion status',
-      why: 'A finished job proves the job ran, not that the data is right.',
+      why: 'A job that finishes only tells you it ran. It says nothing about whether the rows are right.',
     },
     {
       question: 'How do analysts get the data?',
@@ -99,7 +98,7 @@ from   source_daily
 where  dt = '{{ ds }}';
 ```
 
-**Validate rows, not job status.** A completed transfer job proves the job ran, not that the data is right. I validated row by row across the two regions. I also resolved a partition field named differently on each side, a mismatch that would have quietly produced empty results.
+**Check the rows.** I validated row by row across the two regions instead of trusting job status. I also resolved a partition field named differently on each side, a mismatch that would have quietly produced empty results.
 
 **Own the old ones too.** When a compliance review flagged a row-level identifier on an older transfer that predated my work, I remediated it within the SLA using the same pattern instead of debating whose it was.
 

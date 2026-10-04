@@ -1,6 +1,6 @@
 ---
 title: Real-time leaderboards over 1.5B+ live-commerce events
-summary: A ranking feature had stalled because it scanned the serving database on every page load, and the work in progress was query tuning. I moved the computation upstream into Flink, so a page load became a single lookup instead of a scan across millions of rows.
+summary: A ranking feature had stalled because every page load scanned the serving database, and the work in progress was query tuning. I moved the computation upstream into Flink, so each page load became one lookup.
 org: TikTok
 order: 3
 featured: true
@@ -9,13 +9,13 @@ headline:
   label: live-commerce events aggregated in Flink, in hourly windows
 figures:
   - value: '1.5B+'
-    label: records in the stream
-  - value: '294 GB'
-    label: processed
-  - value: '100'
-    label: parallelism
+    label: events in the stream
+  - value: 'Hourly'
+    label: rankings, computed as events arrive
   - value: 'Scan → lookup'
     label: per page load
+  - value: 'Orders of magnitude'
+    label: less query time and compute
 tags:
   - Apache Flink
   - Stream processing
@@ -38,7 +38,7 @@ The feature shows creators the top-performing live sessions and products each ho
 
 Before writing any code, I drew the hour-by-hour data flow on paper (events, windowed aggregation, ranking messages, serving store) and walked it through with the infrastructure owner to check my model against reality. That is where the real constraint showed up.
 
-The query wasn't the problem. The access pattern was. No amount of tuning makes a full scan on every page load fast, because the expensive work was happening at the worst possible moment: while a person waited for it.
+The query itself was fine. The access pattern was the problem: every page load ran a full scan while a person sat waiting for it, and tuning can only shave so much off a full scan.
 
 <Callout label="The call">
   Stop computing at read time. Do the heavy work once, as events arrive, and make the page read a precomputed answer.
@@ -59,8 +59,8 @@ The query wasn't the problem. The access pattern was. No amount of tuning makes 
 <Architecture
   title="Compute once as events arrive; read a lookup"
   layers={[
-    { name: 'Source', nodes: [{ label: 'Live-commerce event stream', note: '1.5B+ records, 294 GB' }] },
-    { name: 'Compute', nodes: [{ label: 'Apache Flink', note: 'hourly windows, parallelism 100', tone: 'signal' }] },
+    { name: 'Source', nodes: [{ label: 'Live-commerce event stream', note: '1.5B+ events' }] },
+    { name: 'Compute', nodes: [{ label: 'Apache Flink', note: 'hourly windows', tone: 'signal' }] },
     { name: 'Publish', nodes: [{ label: 'Message queue', note: 'ranking results' }] },
     { name: 'Storage', nodes: [{ label: 'Serving store', note: 'indexed for ranking' }] },
     { name: 'Serving', nodes: [{ label: 'Creator page', note: 'one lookup per load' }] },
@@ -74,7 +74,7 @@ The query wasn't the problem. The access pattern was. No amount of tuning makes 
   }}
 />
 
-Flink streaming jobs over the live-commerce event stream, 1.5B+ records and 294 GB at parallelism 100, producing hourly revenue and traffic rankings. Results are published through a message queue into a serving store indexed for ranking, so the cost of a page load no longer grows with the number of live sessions.
+Flink streaming jobs over a live-commerce event stream of more than 1.5 billion events, producing hourly revenue and traffic rankings. The results go through a message queue into a serving store indexed for ranking. A page load now costs the same whether there are a hundred live sessions or a million.
 
 The shape of it, as an illustrative pattern rather than production code:
 
@@ -98,23 +98,23 @@ group by session_id, window_start, window_end;
       question: 'Fix the slow page: tune the query or move the work?',
       chose: 'Precompute rankings in Flink as events arrive',
       over: 'Keep tuning the read-time query',
-      why: 'A full scan on every page load can’t meet a latency budget at any tuning level. Moving the work upstream makes page cost independent of how many sessions exist.',
+      why: 'A full scan on every page load was never going to fit the latency budget. Doing the work upstream makes the page cost the same no matter how many sessions there are.',
     },
   ]}
 />
 
 ## Privacy as a pipeline property
 
-The product shows revenue as ranges rather than exact figures, and participation is opt-in, so creators can benchmark against each other without anyone's earnings being exposed to a peer. I built the pipeline to those constraints from the start, so the privacy property is structural rather than a display-layer promise.
+The product shows revenue in ranges and participation is opt-in, so creators can compare themselves with each other without anyone's earnings being exposed. I built the pipeline around those two rules from the start, so the privacy comes from the data itself and not only from how the page displays it.
 
 ## Result
 
-Rankings return instantly, query time and compute cost dropped by orders of magnitude, and the feature launched for A/B testing. The stalled design was never going to get there with tuning; the redesign of where the work happens did.
+Rankings return instantly, query time and compute cost dropped by orders of magnitude, and the feature launched for A/B testing.
 
 ## What broke, and what changed
 
-The original design broke on its access pattern: it scanned millions of rows at read time, on every request, so cost grew with the number of live sessions and the page missed its latency budget. Precomputing upstream turned that scan into a lookup.
+The original design did its heavy work at read time. Every request scanned millions of rows, the cost grew with the number of live sessions, and the page missed its latency budget. Precomputing upstream replaced the scan with a lookup.
 
 ## What I’d do differently now
 
-- Wire the A/B readout into the pipeline from the first release, so the outcome is a measured lift rather than a launch.
+- Wire the A/B readout into the pipeline from the first release, so the result is a measured lift and not just a launch date.

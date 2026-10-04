@@ -35,7 +35,7 @@ import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 Sellers use these analytics pages to decide where to put their money, so the revenue number on them is the product. The business was moving to a new attribution model that separates a direct sale from the influence content had earlier in the buyer's journey. On top of that, different pages were already showing different totals for the same thing.
 
-Get the migration wrong and sellers in three regions make spending decisions on wrong numbers across a full year of history, and nobody finds out until a seller does.
+Get the migration wrong and sellers in three regions make spending decisions on wrong numbers across a full year of history, and the first person to notice would be a seller.
 
 ## What I owned
 
@@ -81,7 +81,7 @@ The business defined the attribution model. My job was to make it true in the da
       question: 'When to merge the two regional codebases?',
       chose: 'Mid-migration, while I was already in the code',
       over: 'After launch, as a separate cleanup',
-      why: 'They had already drifted, which is how one metric ends up computed two ways. Mid-migration is the only time the merge is cheap; after it, every metric change happens twice and hopefully identically.',
+      why: 'They had already drifted, which is how one metric ends up computed two ways. I was already changing that code, so merging then was cheap. Left for later, every metric change would have had to be made twice.',
     },
     {
       question: 'How do APIs get built before the data exists?',
@@ -135,7 +135,7 @@ select (select count(*) from attributed_base
 ```
 
 <Callout label="The call">
-  Cutting validation was the obvious way to make the date. Keeping it is the only reason these three were cheap to fix instead of expensive to explain.
+  Cutting validation was the obvious way to make the date. Because I kept it, all three of these turned up before launch.
 </Callout>
 
 ## Result
@@ -144,5 +144,5 @@ The migration launched on the program date. Every video analytics page in all th
 
 ## What I’d do differently now
 
-- Start the cross-table checklist with the first table, not after QA finds the first gap. Shared logic fails at the sibling you didn’t touch.
+- Start the cross-table checklist with the first table, before QA has a chance to find a gap.
 - Put a row-count guard on every enrichment join from day one, so a fan-out fails the run that introduced it.

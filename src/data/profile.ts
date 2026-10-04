@@ -7,10 +7,12 @@
 export const site = {
   name: 'Sai S Sarvade',
   role: 'Data Engineer',
+  /** Brand line: page title, the at-a-glance card and link previews. Experience keeps the plain title. */
+  tagline: 'Data Engineer - large-scale analytics, streaming & data reliability',
   location: 'San Jose, CA',
   email: 'sai.s.sarvade@gmail.com',
   description:
-    'Sai S Sarvade is a data engineer who turns raw event logs into canonical datasets and metrics people can trust. 5+ years across TikTok and Delta Air Lines.',
+    'Sai S Sarvade, Data Engineer - large-scale analytics, streaming & data reliability. Raw event logs in, trusted datasets and metrics out. 5+ years across TikTok and Delta Air Lines.',
   /** File name inside /public. Replace the PDF to update the résumé everywhere. */
   resume: 'Sai_Sarvade_Resume.pdf',
   links: {
@@ -36,7 +38,7 @@ export const hero = {
     'a creator',
   ],
   intro:
-    'Data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly four years building data pipelines at Delta Air Lines.',
+    'Data engineer at TikTok. I build the pipelines, canonical datasets, and metric definitions behind analytics products used by 15M+ people. Before that, I spent nearly 4 years building data pipelines at Delta Air Lines.',
   /**
    * Optional line shown in the at-a-glance card, e.g. 'Open to senior data engineering roles'.
    * Leave empty to hide it.
@@ -49,7 +51,7 @@ export const glance = [
   { label: 'Role', value: 'Data Engineer at TikTok' },
   { label: 'Experience', value: '5+ years (TikTok, Delta Air Lines)' },
   { label: 'Based in', value: 'San Jose, CA' },
-  { label: 'Focus', value: 'Data integrity, metric definitions, batch and streaming pipelines' },
+  { label: 'Focus', value: 'Large-scale analytics, streaming & data reliability' },
   { label: 'Core stack', value: 'SQL, Python, Spark, Flink, Airflow, dbt, Kafka, AWS' },
   { label: 'Education', value: 'MS, Rice University' },
 ];
@@ -102,7 +104,7 @@ export const experience: Job[] = [
         text: 'Own the multi-step ETL from raw event logs to the canonical datasets the company reports on, at 20 TB a day, and set the data integrity standards and delivery SLAs the team adopted.',
       },
       {
-        text: 'Took a creator-facing API from ~70% success at peak back to healthy by getting the OLAP engine to use an index it had silently stopped using: 40–80× fewer rows scanned per call, and only then a rate limit raised from 150 to 200 QPS.',
+        text: 'Took a creator-facing API from ~70% success at peak back to healthy by getting the OLAP engine to use an index it had quietly stopped using: 40-80× fewer rows scanned per call, and only then about 33% more serving capacity.',
         work: 'olap-api-cost',
       },
       {
@@ -164,20 +166,20 @@ export const experience: Job[] = [
 
 /**
  * "Scale I work at": context, shown as a compact row under the hero.
- * Every figure comes from the résumé or interview notes; ~7 PB a year is 20 TB a day × 365.
+ * Every figure comes from the résumé or interview notes ("tens of TB" = 20 TB+ a day).
  */
 export const scale = [
-  { value: '15M+', count: 15, suffix: 'M+', label: 'creators and sellers on the analytics products my data feeds' },
-  { value: '19', count: 19, label: 'countries on one global e‑commerce platform' },
+  { value: '15M+', count: 15, suffix: 'M+', label: 'creators and sellers served by analytics products powered by my data' },
+  { value: '19', count: 19, label: 'countries served by the analytics products I build for' },
   { value: '4', count: 4, label: 'data regions, each with its own compliance rules' },
-  { value: '~7 PB', count: 7, prefix: '~', suffix: ' PB', label: 'a year through pipelines I own (20 TB+ every day)' },
+  { value: 'Tens of TB', label: 'processed every day by pipelines I own' },
   { value: '1.5B+', count: 1.5, suffix: 'B+', label: 'events in one live-commerce stream my Flink jobs aggregated' },
-  { value: '46M+', count: 46, suffix: 'M+', label: 'rows in a single daily partition of one table' },
+  { value: 'Realtime + daily', label: 'streaming and batch paths feeding the same products' },
 ];
 
 /** Results: outcomes, each backed by a case study. `count` animates on first view (optional). */
 export const impact = [
-  { value: '40–80×', label: 'fewer rows scanned per API call after an OLAP query fix' },
+  { value: '40-80×', label: 'fewer rows scanned per API call after an OLAP query fix' },
   { value: '36', count: 36, label: 'region-months of revenue history rebuilt, behind row-level diffs in every region' },
   { value: '0', label: 'compliance findings moving regulated data across a residency boundary' },
   { value: '>24×', label: 'faster ingestion: 2 hours to under 5 minutes for 3M+ transactions a day' },
@@ -232,11 +234,11 @@ where  dt = '{{ ds }}';`,
   },
   {
     title: 'Fix cost before buying capacity',
-    body: 'When an API is failing, raising its limit is the reflex. I read the query plan first. The engine had silently stopped using an index, so every call scanned 8.24M rows; a one-line hint put the index back to work, cut that 40–80×, and only then did the limit go up.',
+    body: 'When an API is failing, the reflex is to raise its limit. I read the query plan first. The engine had quietly stopped using an index, so every call was scanning millions of rows. A one-line hint put the index back to work and cut that 40-80×, and only then did the limit go up.',
     proof: 'olap-api-cost',
   },
   {
-    title: 'Fix the access pattern, not just the query',
+    title: 'Fix the access pattern',
     body: 'When data is read the wrong way, query tuning hits a ceiling. Moving a ranking feature’s computation upstream into Flink, so the work happens as events arrive, cut query time and compute cost by orders of magnitude.',
     proof: 'realtime-rankings',
     lang: 'sql',
@@ -268,7 +270,7 @@ metrics:
       measure: active_user_count`,
   },
   {
-    title: 'Return a decision, not a question',
+    title: 'Answer with a decision',
     body: 'Ambiguous asks tend to turn into a month of “looking into it.” I split them into what is actually tractable and what is blocked, and why, then answer with a recommendation. One request split cleanly into a part that was tractable and a part policy ruled out, and the PM re-scoped the same day. The same habit avoided two builds nobody needed.',
   },
   {

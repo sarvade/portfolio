@@ -1,21 +1,21 @@
 ---
-title: 'Fixing cost before capacity: 40–80× less scan per call on an API failing at peak'
-summary: A creator-facing API was down to about 70% success at peak, and backend wanted a higher rate limit. At the existing cap, that meant up to 1.2 billion rows scanned every second. I found the index the engine had silently stopped using, cut rows per call 40–80×, and only then raised the limit.
+title: 'Fixing cost before capacity: 40-80× less scan per call on an API failing at peak'
+summary: A creator-facing API dropped to about 70% success at peak, and the first idea on the table was a higher rate limit. Every call was already scanning millions of rows. I found the index the engine had quietly stopped using, cut the rows per call by 40-80×, and only after that raised serving capacity by about a third.
 org: TikTok
 order: 2
 featured: true
 headline:
-  value: '40–80×'
-  label: fewer rows scanned per call, then 33% more traffic allowed
+  value: '40-80×'
+  label: fewer rows scanned per call, then about 33% more capacity
 figures:
   - value: '~70%'
     label: success rate at peak, before
-  - value: '8.24M'
-    label: rows scanned per call, before
-  - value: '~1.2B/s'
-    label: rows scanned per second at the old cap, at most
-  - value: '150 → 200'
-    label: QPS limit, raised only after the fix
+  - value: '40-80×'
+    label: fewer rows scanned per call
+  - value: '30-60×'
+    label: less scan load on the cluster at the new limit
+  - value: '~33%'
+    label: more serving capacity, raised after the fix
 tags:
   - Apache Doris
   - Query plans
@@ -33,20 +33,20 @@ import Tradeoffs from '../../components/viz/Tradeoffs.astro';
 
 ## What was at stake
 
-A creator-facing API was failing at peak traffic in one region, with its success rate down to about 70%. Backend wanted the rate limit raised, which is the fix everyone reaches for first.
+A creator-facing API was failing at peak traffic in one region. Its success rate had fallen to about 70%, and backend asked for a higher rate limit, which is usually the first fix people reach for.
 
-The capacity math said otherwise. Every call was scanning 8.24 million rows in the OLAP cluster behind it. At the existing 150-QPS cap, that is up to 150 × 8.24M ≈ 1.2 billion rows scanned every second. Raising the cap would not have healed the API. It would have moved the incident into the OLAP cluster itself.
+I ran the numbers before agreeing. Each call was scanning millions of rows in the OLAP cluster behind the API, so a higher limit meant more of those scans per second on the same cluster. The API might have looked better for a while, and the cluster would have taken the hit.
 
 <Architecture
   title="The read path behind the API"
   layers={[
     { name: 'Client', nodes: [{ label: 'Creator-facing page', note: 'peak traffic in one region' }] },
-    { name: 'Serving', nodes: [{ label: 'API with a rate limit', note: '150 QPS, later 200' }] },
+    { name: 'Serving', nodes: [{ label: 'API with a rate limit', note: 'raised about 33%, after the fix' }] },
     {
       name: 'Query engine',
       nodes: [
         { label: 'Apache Doris query', note: 'long IN-list filter', tone: 'caution' },
-        { label: 'Scan-key hint', note: 'one line, index back in play', tone: 'signal' },
+        { label: 'Query hint', note: 'one line, index used again', tone: 'signal' },
       ],
     },
     { name: 'Storage', nodes: [{ label: 'OLAP table', note: 'prefix index on key columns' }] },
@@ -55,8 +55,8 @@ The capacity math said otherwise. Every call was scanning 8.24 million rows in t
     name: 'Evidence',
     nodes: [
       { label: 'Query plans', note: 'read with the cluster owner' },
-      { label: 'Rows scanned per call', note: '8.24M → ~0.1–0.2M' },
-      { label: 'Limit change', note: 'filed with before/after attached' },
+      { label: 'Rows scanned per call', note: '40-80× fewer after the hint' },
+      { label: 'Limit change', note: 'filed with before and after attached' },
     ],
   }}
 />
@@ -64,33 +64,33 @@ The capacity math said otherwise. Every call was scanning 8.24 million rows in t
 <Tradeoffs
   items={[
     {
-      question: 'An API failing at peak: buy capacity or cut cost?',
-      chose: 'Cut per-call cost first, then raise the limit',
+      question: 'An API failing at peak: add capacity or cut cost?',
+      chose: 'Cut the cost of each call first, then raise the limit',
       over: 'Raise the rate limit right away',
-      why: 'At 8.24M rows a call, the existing 150-QPS cap already allowed up to 1.2B rows a second of scanning. Raising it would only have added load; the incident would have moved, not ended.',
+      why: 'Each call scanned millions of rows. More calls per second would have pushed that load straight onto the cluster.',
     },
     {
       question: 'During a failover, bump the cap?',
       chose: 'A measured decision rule, with a formal change only past a threshold',
-      over: 'An unreviewed limit change mid-incident',
-      why: 'The backup environment had none of the tuning, and nobody could judge the blast radius during the incident.',
+      over: 'An unreviewed limit change in the middle of an incident',
+      why: 'The backup environment had none of the tuning, and nobody could judge the blast radius while the incident was live.',
     },
   ]}
 />
 
 ## Diagnosis
 
-I read the query plans with the owner of the OLAP cluster, which runs Apache Doris. The query filtered on a long `IN` list. Past a certain number of scan keys, the engine stops using the prefix index to narrow the scan, and nothing errors when that happens. The query keeps returning correct results while reading far more data than it needs.
+I read the query plans with the owner of the OLAP cluster, which runs Apache Doris. The query filtered on a long `IN` list. Once a filter produces more scan keys than the engine allows, it stops using the prefix index to narrow the scan. Nothing errors. The query still returns correct results; it just reads far more data than it needs to.
 
-That is the class of bug I look for: green dashboards, correct output, wrong cost.
+I look for this kind of bug on purpose: every dashboard is green, the output is right, and the cost is wrong.
 
 <Flow
-  title="Before: the index was silently skipped"
+  title="Before: the index was quietly skipped"
   steps={[
     { label: 'API request' },
     { label: 'Long IN-list filter' },
     { label: 'Scan-key limit exceeded', note: 'prefix index not used', tone: 'caution' },
-    { label: '8.24M rows per call', tone: 'caution' },
+    { label: 'Millions of rows per call', tone: 'caution' },
   ]}
 />
 
@@ -98,54 +98,45 @@ That is the class of bug I look for: green dashboards, correct output, wrong cos
   title="After: a one-line hint"
   steps={[
     { label: 'API request' },
-    { label: 'Scan-key limit tuned', note: 'one-line query hint', tone: 'signal' },
+    { label: 'Query hint', note: 'one line', tone: 'signal' },
     { label: 'Prefix index used again' },
-    { label: '~0.1–0.2M rows per call' },
+    { label: '40-80× fewer rows per call' },
   ]}
 />
 
 ## The fix
 
-A one-line query hint on the scan-key setting (`max_scan_key_num`) put the prefix index back to work. Rows scanned per call dropped 40 to 80 times. No schema change, no new hardware, no redesign.
+A one-line query hint got the engine using the prefix index again, and rows scanned per call dropped 40 to 80 times. No schema change, no new hardware, no redesign.
 
 <Compare
-  title="Rows scanned per API call"
+  title="Rows scanned per API call, indexed to before = 100"
   rows={[
-    { label: 'Before', value: 8240000, display: '8.24M', tone: 'before' },
-    { label: 'After', value: 206000, display: '~0.1–0.2M', tone: 'after' },
+    { label: 'Before', value: 100, display: '100', tone: 'before' },
+    { label: 'After', value: 2.5, display: '1.3-2.5', tone: 'after' },
   ]}
-  caption="Linear scale. Each call now scans 40–80× fewer rows; the bar shows the upper end of that range."
+  caption="Linear scale. 40-80× fewer rows per call; the bar shows the upper end of that range."
 />
 
-Only then did I raise the limit, from 150 to 200 queries per second, with the before-and-after evidence attached to the change. The cluster ended up doing a fraction of the work while allowing a third more traffic.
-
-<Compare
-  title="Maximum scan load on the cluster at the rate limit, rows per second"
-  rows={[
-    { label: 'Before', value: 1236000000, display: '~1.2B at 150 QPS', tone: 'before' },
-    { label: 'After', value: 41200000, display: '~20–40M at 200 QPS', tone: 'after' },
-  ]}
-  caption="Derived: rate limit × rows per call. Roughly 30–60× less scan load, with 33% more headroom for traffic."
-/>
+Then I raised serving capacity by about a third, with the before and after numbers attached to the change. At the new limit the cluster does 30 to 60 times less scanning than it did at the old one.
 
 ## Three months later
 
-During an infrastructure incident, traffic failed over to a backup environment that had none of this tuning, and the same API hit its cap at about 250 QPS. A backend engineer asked me for a quick limit change.
+During an infrastructure incident, traffic failed over to a backup environment that didn't have this tuning, and the same API hit its limit. A backend engineer asked me for a quick limit change.
 
-I said no, and I didn't stop at no. Raising the cap in an environment without the fix would have repeated the original mistake with the safety margin already gone. So I gave him a decision rule he could forward: measure the real peak over a defined window, and file the formal change only if traffic stays above the threshold past the failback ETA. Traffic failed back before the threshold mattered, and nothing unreviewed went into production during the incident.
+I said no and gave him something he could act on. Raising the cap in an environment without the fix would have repeated the original mistake with less margin. The rule I proposed: measure the real peak over a set window, and file the formal change only if traffic stays above the threshold past the failback ETA. Traffic failed back before it came to that, and nothing unreviewed went into production during the incident.
 
 ## Result
 
-The success rate recovered, and the API has run under the new limit since. Reviewing scan cost before capacity became the team's default first step for OLAP-backed list APIs. I later walked a colleague through the same plan and hint when his new interface failed scan testing days before its launch date; it passed on time, and I added the pattern to the team's [AI debugging skill](../ai-oncall-skills/) so the next person doesn't need either of us.
+The success rate recovered, and the API has stayed under its new limit since. Reviewing scan cost before capacity became the team's default first step for OLAP-backed list APIs. Later, a colleague's new interface failed scan testing days before launch; I walked him through the same plan and hint, it passed on time, and I added the pattern to the team's [AI debugging skill](../ai-oncall-skills/).
 
-The change itself was one line. That's the point: the expensive fix was the wrong one.
+The whole fix was one line.
 
 ## What broke, and what changed
 
-- **The engine changed plans without telling anyone.** The `IN` list was longer than the scan-key limit, so the engine quietly stopped using the prefix index: correct results, 40–80× the work, no error. Reviewing scan cost before capacity is now the team’s default first step for OLAP-backed list APIs.
-- **The failover environment didn’t have the fix.** The backup had none of the tuning, and the same API hit its cap at about 250 QPS. A decision rule kept the response measured, and nothing unreviewed shipped.
+- **The engine switched plans without telling anyone.** The `IN` list produced more scan keys than the engine allows, so it stopped using the prefix index: same results, 40-80× the work, no error. Checking scan cost before capacity is now the team's first step for OLAP-backed list APIs.
+- **The failover environment didn't have the fix.** The backup had none of the tuning, and the same API hit its limit there. A decision rule kept the response measured, and nothing unreviewed shipped.
 
 ## What I’d do differently now
 
-- Ship query tuning with the API’s configuration, so a failover environment inherits it instead of starting from defaults.
-- Alert on rows scanned per call, not just latency and errors. A cost cliff shows up in scan volume before it shows up as failures.
+- Ship query tuning with the API's configuration, so a failover environment inherits it.
+- Alert on rows scanned per call as well as latency and errors. A cost cliff shows up in scan volume before it shows up as failures.

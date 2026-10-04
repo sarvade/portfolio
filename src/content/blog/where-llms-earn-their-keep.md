@@ -39,7 +39,7 @@ I gave them aggregates I could stand behind, said plainly what my tables could a
 1. **Numbers come from queries, never from the model.** If a model is involved, it writes or explains the query. The warehouse runs it, and the result is shown next to the query that produced it.
 2. **Scope before you answer.** Say what the data covers and what it doesn't: an estimate at attribution time is not a settled amount, and event time is not processing time. Half of all wrong numbers are right answers to a different question.
 3. **Aggregate by default.** Model output gets pasted everywhere. Keep identifiers out of anything a model touches unless there's a specific reason.
-4. **Validate model-written SQL the way you validate your own.** Uniqueness on the key, a row-level diff against something trusted, a run-it-twice check. Generated code isn't special. It's code someone else wrote.
+4. **Validate model-written SQL the way you validate your own.** Uniqueness on the key, a row-level diff against something trusted, a run-it-twice check. Treat generated code like code from a new teammate: review it and test it.
 5. **Keep a person on the merge button.**
 
 ## A small example of the split

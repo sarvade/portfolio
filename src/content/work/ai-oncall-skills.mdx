@@ -45,7 +45,7 @@ Three reusable AI assistant skills, each encoding how our stack actually behaves
   Each skill forces one distinction before anything else: is this a data bug, or correct data that needs a product decision? Most of on-call is telling those two apart.
 </Callout>
 
-A real example: a product showing up on a video it was never bound to looked like a join defect. It was indirect affiliate tracking working as designed. That is a product call, not an engineering fix, and a triage flow that can't tell the difference sends engineers chasing bugs that aren't there.
+A real example: a product showing up on a video it was never bound to looked like a join defect. It was indirect affiliate tracking working as designed. That's a product decision, and no code change would fix it. A triage flow that can't tell the difference sends engineers after bugs that don't exist.
 
 They grow as the team learns. When I helped a colleague past an OLAP scan limit, the [diagnosis pattern](../olap-api-cost/) went into the debugging skill so the next person doesn't need either of us.
 

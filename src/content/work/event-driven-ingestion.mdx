@@ -58,4 +58,4 @@ End-to-end latency fell from two hours to under five minutes, more than 24 times
 
 ## What I’d do differently now
 
-- Treat replay as part of the design, not an add-on: a dead-letter queue and re-drive from the stream turn a bad batch into a replay instead of an incident.
+- Build replay in from the start, with a dead-letter queue and re-drive from the stream, so a bad batch can simply be run again.

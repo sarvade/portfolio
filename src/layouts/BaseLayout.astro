@@ -23,7 +23,7 @@ interface Props {
 
 const { title, description = site.description, type = 'website', publishedTime, jsonLd, noindex = false } = Astro.props;
 
-const fullTitle = title ? `${title} | ${site.name}` : `${site.name} | ${site.role}`;
+const fullTitle = title ? `${title} | ${site.name}` : `${site.name} | ${site.tagline}`;
 const canonical = new URL(Astro.url.pathname, Astro.site).toString();
 const ogImage = absoluteUrl('og.png', Astro.site);
 const hasPosts = (await getPosts()).length > 0;
