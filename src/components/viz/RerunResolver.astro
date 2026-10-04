@@ -1,0 +1,556 @@
+---
+/*
+  Interactive: which code will an Airflow 3.3 rerun use?
+  Each rung of the ladder is one level of the precedence; the signal runs down
+  until a level decides. Logic lives in rerun-resolver.ts and is shared with the
+  server render, so without JavaScript this is a static diagram of the defaults.
+*/
+import { DEFAULT_INPUTS, resolve, type Inputs, type RowId } from './rerun-resolver';
+
+interface Props {
+  /** Prefix for input names, so two widgets on one page stay independent. */
+  id?: string;
+  title?: string;
+  caption?: string;
+}
+
+const { id = 'rr', title = 'Which code will this rerun use?', caption } = Astro.props;
+
+type Field = keyof Inputs;
+interface Row {
+  id: RowId | 'action';
+  label: string;
+  sub?: string;
+  field?: Field;
+  options?: [value: string, label: string][];
+}
+
+const tri: [string, string][] = [
+  ['unset', 'Not set'],
+  ['true', 'True'],
+  ['false', 'False'],
+];
+
+const rows: Row[] = [
+  {
+    id: 'action',
+    label: 'What you’re doing',
+    field: 'action',
+    options: [
+      ['clear', 'Clear (UI or API)'],
+      ['backfill', 'Backfill'],
+    ],
+  },
+  {
+    id: 'bundle',
+    label: 'Bundle versioning',
+    sub: 'On for GitDagBundle. Off for Local, S3 and GCS bundles, or with disable_bundle_versioning',
+    field: 'bundle',
+    options: [
+      ['on', 'On'],
+      ['off', 'Off'],
+    ],
+  },
+  {
+    id: 'request',
+    label: '1. The request',
+    sub: 'run_on_latest_version: UI checkbox, API field or backfill CLI flag',
+    field: 'request',
+    options: tri,
+  },
+  { id: 'dag', label: '2. The DAG', sub: 'rerun_with_latest_version on the DAG', field: 'dag', options: tri },
+  { id: 'config', label: '3. Config', sub: '[core] rerun_with_latest_version', field: 'config', options: tri },
+  { id: 'default', label: '4. Default', sub: 'False for clear and rerun, True for backfills' },
+  {
+    id: 'history',
+    label: 'The run’s own version',
+    sub: 'None for runs from Airflow 2, or removed by airflow db clean',
+    field: 'history',
+    options: [
+      ['has', 'Recorded'],
+      ['none', 'None'],
+    ],
+  },
+];
+
+const initial = resolve(DEFAULT_INPUTS);
+const defaultValue = (action: Inputs['action']) => (action === 'backfill' ? 'True' : 'False');
+---
+
+<figure class="rr" data-rr data-prefix={id}>
+  <p class="rr-head">
+    <span class="rr-kicker">Interactive</span>
+    <span class="rr-title">{title}</span>
+  </p>
+  <p class="rr-hint">Change the inputs. The highlight runs down the ladder until something decides.</p>
+
+  <ol class="rr-ladder">
+    {
+      rows.map((row, index) => {
+        const status = row.id === 'action' ? undefined : initial.rows[row.id];
+        return (
+          <li class="rr-row" data-row={row.id} data-state={status?.state ?? 'input'} style={`--i: ${index}`}>
+            <fieldset class="rr-field">
+              <legend class="rr-label">
+                {row.label}
+                {row.sub && <span class="rr-sub">{row.sub}</span>}
+              </legend>
+              {row.options && row.field ? (
+                <div class="rr-seg">
+                  {row.options.map(([value, label]) => (
+                    <label>
+                      <input
+                        type="radio"
+                        name={`${id}-${row.field}`}
+                        value={value}
+                        checked={DEFAULT_INPUTS[row.field as Field] === value}
+                        disabled
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <span class="rr-fixed" data-default-value>
+                  {defaultValue(DEFAULT_INPUTS.action)}
+                </span>
+              )}
+              {status && (
+                <span class="rr-status" data-status>
+                  {status.text}
+                </span>
+              )}
+            </fieldset>
+          </li>
+        );
+      })
+    }
+  </ol>
+
+  <div class="rr-result" data-outcome={initial.outcome}>
+    <p class="rr-result-label">Result</p>
+    <p class="rr-summary" data-summary aria-live="polite">{initial.summary}</p>
+    <p class="rr-note" data-clear-note>
+      The <code>airflow tasks clear</code> and <code>airflow dags clear</code> CLI commands don’t read this setting in
+      3.3.2. They always keep the original version.
+    </p>
+    <p class="rr-note" data-backfill-note hidden>
+      This applies to dates the backfill reprocesses. With the default reprocess behavior, none, dates that already have
+      a run are skipped. Dates with no run yet always start on the latest version.
+    </p>
+  </div>
+
+  <noscript><p class="rr-noscript">Turn on JavaScript to change the inputs. Shown: the defaults.</p></noscript>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import { resolve, type Inputs, type RowId } from './rerun-resolver';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-rr]')) {
+    const prefix = root.dataset.prefix ?? 'rr';
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const inputs = root.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    const summary = root.querySelector<HTMLElement>('[data-summary]');
+    const result = root.querySelector<HTMLElement>('.rr-result');
+    const backfillNote = root.querySelector<HTMLElement>('[data-backfill-note]');
+    const clearNote = root.querySelector<HTMLElement>('[data-clear-note]');
+    const defaultValue = root.querySelector<HTMLElement>('[data-default-value]');
+
+    const read = (field: keyof Inputs) =>
+      root.querySelector<HTMLInputElement>(`input[name="${prefix}-${field}"]:checked`)?.value;
+
+    const update = (animate: boolean) => {
+      const state = {
+        action: read('action'),
+        bundle: read('bundle'),
+        request: read('request'),
+        dag: read('dag'),
+        config: read('config'),
+        history: read('history'),
+      } as Inputs;
+      const res = resolve(state);
+
+      for (const [rowId, status] of Object.entries(res.rows) as [RowId, { state: string; text: string }][]) {
+        const row = root.querySelector<HTMLElement>(`[data-row="${rowId}"]`);
+        if (!row) continue;
+        row.dataset.state = status.state;
+        const label = row.querySelector<HTMLElement>('[data-status]');
+        if (label) label.textContent = status.text;
+      }
+
+      if (defaultValue) defaultValue.textContent = state.action === 'backfill' ? 'True' : 'False';
+      if (backfillNote) backfillNote.hidden = state.action !== 'backfill';
+      if (clearNote) clearNote.hidden = state.action !== 'clear';
+      if (summary) summary.textContent = res.summary;
+      if (result) {
+        result.dataset.outcome = res.outcome;
+        if (animate && !reduce.matches) {
+          result.classList.remove('is-changing');
+          void result.offsetWidth; // restart the animation
+          result.classList.add('is-changing');
+        }
+      }
+    };
+
+    for (const input of inputs) {
+      input.disabled = false;
+      input.addEventListener('change', () => update(true));
+    }
+    root.classList.add('is-live');
+    update(false);
+  }
+</script>
+
+<style>
+  .rr {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .rr-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .rr-kicker {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rr-title {
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .rr-hint {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .rr-ladder {
+    margin: var(--space-5) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* One rung. The left gutter holds the dot and the rail to the next rung. */
+  .rr-row {
+    position: relative;
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-3) var(--space-3) var(--space-3) calc(var(--space-6) + var(--space-2));
+    border: 1px solid transparent;
+    border-radius: 10px;
+    transition:
+      opacity 0.25s ease,
+      border-color 0.25s ease,
+      background-color 0.25s ease;
+    transition-delay: calc(var(--i) * 45ms);
+  }
+
+  .rr-row + .rr-row {
+    margin-top: var(--space-1);
+  }
+
+  .rr-row::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--space-3) + 3px);
+    top: calc(var(--space-3) + 0.3rem);
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--rule-strong);
+    border-radius: 50%;
+    background: var(--bg);
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease;
+    transition-delay: inherit;
+  }
+
+  .rr-row:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(var(--space-3) + 8px);
+    top: calc(var(--space-3) + 0.3rem + 14px);
+    bottom: calc(-1 * var(--space-3) - var(--space-1) - 0.3rem);
+    width: 2px;
+    background: var(--rule);
+    transition: background-color 0.25s ease;
+    transition-delay: inherit;
+  }
+
+  /* Rungs the decision passes through */
+  .rr-row[data-state='input']::before,
+  .rr-row[data-state='pass']::before {
+    border-color: var(--signal);
+  }
+
+  .rr-row[data-state='input']::after,
+  .rr-row[data-state='pass']::after {
+    background: var(--signal);
+  }
+
+  .rr-row[data-state='decides'] {
+    border-color: var(--signal);
+    background: color-mix(in srgb, var(--signal) 9%, var(--bg));
+  }
+
+  .rr-row[data-state='decides']::before {
+    border-color: var(--signal);
+    background: var(--signal);
+  }
+
+  /* After a decision, the run-history check still applies when it is consulted */
+  .rr-row[data-state='decides']:has(+ .rr-row:not([data-state='skip']))::after {
+    background: var(--signal);
+  }
+
+  .rr-row[data-state='override'] {
+    border-color: var(--caution);
+    background: color-mix(in srgb, var(--caution) 9%, var(--bg));
+  }
+
+  .rr-row[data-state='override']::before {
+    border-color: var(--caution);
+    background: var(--caution);
+  }
+
+  .rr-row[data-state='skip'] {
+    opacity: 0.55;
+  }
+
+  /* A dimmed rung is still usable; bring it back while it has focus */
+  .rr-row[data-state='skip']:focus-within {
+    opacity: 1;
+  }
+
+  .rr-field {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  /* Floated so the legend lays out as a normal grid item, not the special rendered legend */
+  .rr-label {
+    float: left;
+    display: grid;
+    gap: 2px;
+    padding: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .rr-sub {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 450;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  /* Segmented control built from real radio buttons */
+  .rr-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-self: start;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .rr-seg label {
+    position: relative;
+    display: flex;
+  }
+
+  .rr-seg label + label {
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .rr-seg input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .rr-seg span {
+    padding: 0.35rem 0.7rem;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 550;
+    line-height: 1.3;
+    white-space: nowrap;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  .rr-seg input:checked + span {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  .rr-seg input:focus-visible + span {
+    outline: 2px solid var(--signal);
+    outline-offset: -4px;
+    box-shadow: inset 0 0 0 4px var(--bg);
+  }
+
+  .rr-seg input:disabled {
+    cursor: default;
+  }
+
+  .rr:not(.is-live) .rr-seg input:not(:checked) + span {
+    color: var(--text-muted);
+  }
+
+  .rr-fixed {
+    justify-self: start;
+    padding: 0.3rem 0.7rem;
+    border: 1px dashed var(--rule-strong);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 550;
+  }
+
+  .rr-status {
+    justify-self: start;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .rr-row[data-state='decides'] .rr-status {
+    border-color: var(--signal);
+    color: var(--text);
+  }
+
+  .rr-row[data-state='override'] .rr-status {
+    border-color: var(--caution);
+    color: var(--text);
+  }
+
+  .rr-result {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border-radius: 10px;
+    border: 1.5px solid var(--signal);
+    background: var(--bg);
+  }
+
+  .rr-result-label {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rr-summary {
+    margin-top: var(--space-1);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  .rr-note {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .rr-note code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .rr-result.is-changing .rr-summary {
+    animation: rr-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  @keyframes rr-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  .rr-noscript,
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Wider: label, control and status on one line, controls in one column */
+  @container (min-width: 600px) {
+    .rr-field {
+      grid-template-columns: minmax(0, 1fr) 11.5rem 10.5rem;
+      align-items: center;
+      column-gap: var(--space-4);
+    }
+
+    .rr-status {
+      justify-self: stretch;
+      text-align: center;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rr-row,
+    .rr-row::before,
+    .rr-row::after,
+    .rr-seg span {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .rr-seg input:checked + span {
+      outline: 2px solid CanvasText;
+      outline-offset: -3px;
+    }
+
+    .rr-row[data-state='decides'],
+    .rr-row[data-state='override'] {
+      border-color: CanvasText;
+    }
+  }
+</style>

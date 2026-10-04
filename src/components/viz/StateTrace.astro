@@ -1,0 +1,259 @@
+---
+/*
+  State over time, in lanes: each lane is one kind of stored state (its scope in
+  a chip), its steps in order, and the outcome at the bottom. Lanes sit side by
+  side when there is room and stack on phones.
+
+  Plain ordered lists, so it reads in order without CSS or JS. Steps reveal one
+  after another when the figure scrolls into view (skipped with reduced motion).
+  tone: 'signal' for the intended behavior, 'caution' for where it goes wrong.
+*/
+interface Step {
+  when: string;
+  text: string;
+  tone?: 'default' | 'signal' | 'caution';
+}
+
+interface Lane {
+  name: string;
+  scope: string;
+  steps: Step[];
+  outcome?: string;
+}
+
+interface Props {
+  title: string;
+  lanes: Lane[];
+  caption?: string;
+}
+
+const { title, lanes, caption } = Astro.props;
+---
+
+<figure class="trace" data-trace>
+  <p class="trace-title">{title}</p>
+  <div class="trace-lanes" style={`--lanes: ${lanes.length}`}>
+    {
+      lanes.map((lane) => (
+        <section class="lane" aria-label={lane.name}>
+          <p class="lane-name">{lane.name}</p>
+          <p class="lane-scope">
+            <span>Scope</span> {lane.scope}
+          </p>
+          <ol class="lane-steps">
+            {lane.steps.map((step, i) => (
+              <li class:list={['step', `tone-${step.tone ?? 'default'}`]} style={`--i: ${i}`}>
+                <span class="step-when">{step.when}</span>
+                <span class="step-text" set:html={step.text} />
+              </li>
+            ))}
+          </ol>
+          {lane.outcome && (
+            <p class="lane-outcome" style={`--i: ${lane.steps.length}`}>
+              {lane.outcome}
+            </p>
+          )}
+        </section>
+      ))
+    }
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const figures = document.querySelectorAll<HTMLElement>('[data-trace]');
+  if (!reduce.matches && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          entry.target.classList.add('is-in');
+          observer.unobserve(entry.target);
+        }
+      },
+      { threshold: 0.2 },
+    );
+    for (const figure of figures) {
+      figure.classList.add('is-armed');
+      observer.observe(figure);
+    }
+  }
+</script>
+
+<style>
+  .trace {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+  }
+
+  .trace-title {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  .trace-lanes {
+    display: grid;
+    gap: var(--space-4);
+    margin-top: var(--space-4);
+  }
+
+  .lane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+
+  .lane-name {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 700;
+  }
+
+  .lane-scope {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .lane-scope span {
+    margin-right: var(--space-1);
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .lane-steps {
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* Each step hangs off a vertical timeline */
+  .step {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 0 0 var(--space-4) var(--space-5);
+  }
+
+  .step::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.3rem;
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--rule-strong);
+    border-radius: 50%;
+    background: var(--bg);
+  }
+
+  .step::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: calc(0.3rem + 12px);
+    bottom: 2px;
+    width: 1.5px;
+    background: var(--rule);
+  }
+
+  .step.tone-signal::before {
+    border-color: var(--signal);
+    background: var(--signal);
+  }
+
+  .step.tone-caution::before {
+    border-color: var(--caution);
+    background: var(--caution);
+  }
+
+  .step-when {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 550;
+    line-height: 1.4;
+  }
+
+  .step-text {
+    color: var(--text);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+
+  .step-text :global(code) {
+    padding: 0.05em 0.3em;
+    border-radius: 4px;
+    background: var(--surface-2);
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    overflow-wrap: anywhere;
+  }
+
+  .lane-outcome {
+    margin-top: auto;
+    padding: var(--space-3);
+    border: 1.5px solid var(--caution);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--caution) 9%, var(--bg));
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @container (min-width: 600px) {
+    .trace-lanes {
+      grid-template-columns: repeat(var(--lanes), minmax(0, 1fr));
+    }
+  }
+
+  /* Reveal in order: armed by the script, played once when visible */
+  .trace.is-armed .step,
+  .trace.is-armed .lane-outcome {
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+      opacity 0.4s ease,
+      transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: calc(var(--i) * 220ms);
+  }
+
+  .trace.is-armed.is-in .step,
+  .trace.is-armed.is-in .lane-outcome {
+    opacity: 1;
+    transform: none;
+  }
+
+  @media (forced-colors: active) {
+    .step.tone-signal::before,
+    .step.tone-caution::before {
+      background: CanvasText;
+    }
+  }
+</style>

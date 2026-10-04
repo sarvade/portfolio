@@ -1,0 +1,296 @@
+---
+/*
+  Data model diagram: one or two tables as cards, with an optional relationship
+  drawn between them. Columns marked `added` are what the post proposes adding,
+  so the diagram shows the change, not just the end state.
+
+  Each table is a real <table>, so the model reads without CSS and to screen
+  readers. Tables stack, joined by the relationship, so long notes stay readable.
+*/
+interface Column {
+  name: string;
+  type: string;
+  key?: 'pk' | 'fk' | 'partition';
+  note?: string;
+  added?: boolean;
+}
+
+interface Table {
+  name: string;
+  note?: string;
+  columns: Column[];
+}
+
+interface Props {
+  title: string;
+  tables: Table[];
+  /** Drawn between the first two tables, e.g. { label: 'dt', cardinality: '1 to many' }. */
+  relation?: { label: string; cardinality?: string };
+  caption?: string;
+}
+
+const { title, tables, relation, caption } = Astro.props;
+const keyLabel = { pk: 'PK', fk: 'FK', partition: 'Partition' } as const;
+---
+
+<figure class="schema">
+  <p class="schema-head"><span class="schema-kicker">Data model</span><span class="schema-title">{title}</span></p>
+  <div class="schema-grid">
+    {
+      tables.map((table, t) => (
+        <>
+          {t === 1 && relation && (
+            <div class="relation" aria-hidden="true">
+              <span class="relation-line" />
+              <span class="relation-label">
+                {relation.label}
+                {relation.cardinality && <span class="relation-card">{relation.cardinality}</span>}
+              </span>
+              <span class="relation-line" />
+            </div>
+          )}
+          <div class="entity">
+            <table>
+              <caption>
+                <span class="entity-name">{table.name}</span>
+                {table.note && <span class="entity-note">{table.note}</span>}
+              </caption>
+              <thead class="visually-hidden">
+                <tr>
+                  <th scope="col">Column</th>
+                  <th scope="col">Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {table.columns.map((col) => (
+                  <tr class:list={{ added: col.added }}>
+                    <th scope="row">
+                      <code>{col.name}</code>
+                      {col.key && <span class={`badge badge-${col.key}`}>{keyLabel[col.key]}</span>}
+                      {col.added && <span class="badge badge-added">New</span>}
+                      {col.note && <span class="col-note">{col.note}</span>}
+                    </th>
+                    <td class="col-type">{col.type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ))
+    }
+  </div>
+  {relation && <p class="visually-hidden">Relationship: {relation.label}, {relation.cardinality}.</p>}
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .schema {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .schema-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .schema-kicker {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .schema-title {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  .schema-grid {
+    display: grid;
+    gap: 0;
+    margin-top: var(--space-4);
+  }
+
+  .entity {
+    min-width: 0;
+    border: 1.25px solid var(--rule-strong);
+    border-radius: 10px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  /* Reset the prose table styles this sits inside */
+  .entity table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .entity caption {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1.25px solid var(--rule-strong);
+    background: var(--surface-2);
+    text-align: left;
+  }
+
+  .entity-name,
+  .entity-note {
+    display: block;
+  }
+
+  .entity-name {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  .entity-note {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .entity th,
+  .entity td {
+    padding: 0.45rem var(--space-3);
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .entity tr:last-child th,
+  .entity tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .entity th {
+    font-weight: 500;
+  }
+
+  .entity th code {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    background: none;
+    padding: 0;
+  }
+
+  .col-type {
+    width: 1%;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  .col-note {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .added th {
+    box-shadow: inset 3px 0 0 var(--signal);
+  }
+
+  .added {
+    background: color-mix(in srgb, var(--signal) 7%, transparent);
+  }
+
+  .badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+    text-transform: uppercase;
+    vertical-align: 0.1em;
+  }
+
+  .badge-added {
+    border-color: var(--signal);
+    color: var(--text);
+  }
+
+  /* Relationship connector: vertical between stacked cards on phones */
+  .relation {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-block: var(--space-2);
+  }
+
+  .relation-line {
+    width: 1.5px;
+    height: var(--space-4);
+    background: var(--rule-strong);
+  }
+
+  .relation-label {
+    display: grid;
+    justify-items: center;
+    gap: 1px;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .relation-card {
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 500;
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Small phones: tighter cells, and long types may wrap rather than clip */
+  @container (max-width: 320px) {
+    .entity th,
+    .entity td {
+      padding-inline: 0.5rem;
+    }
+
+    .entity caption {
+      padding-inline: 0.75rem;
+    }
+
+    .col-type {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+</style>

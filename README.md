@@ -53,6 +53,16 @@ Case studies are MDX, so they can use the built-in components in `src/components
 - `<Architecture title="..." layers={[{ name: 'Source', nodes: [...] }, ...]} checks={{ nodes: [...] }} />`: a layered system diagram (source, compute, storage, serving, or the system's real path) with a band for the checks that guard it. Spans the full article width on case-study pages and stacks on phones.
 - `<Tradeoffs items={[{ question, chose, over, why }]} />`: decisions as a small decision record. Only list alternatives that were really considered.
 
+Blog posts can use the same components when written as `.mdx`, plus a few more:
+
+- `<Matrix title="..." columns={[...]} rows={[[...], ...]} chips={{ Latest: 'signal' }} />`: a decision table that turns into one card per row on phones. Cell values listed in `chips` render as tone-colored labels.
+- `<Partitions title="..." legend={[{ key, label, tone }]} rows={[{ label, cells: 'oooxn', marks: [3], note }]} axis={['Sep 1', 'Sep 30']} />`: one row per scenario, one cell per partition. Each character of `cells` is a legend key; `marks` (or `'all'`) draws rewritten cells taller. Label illustrative data in the caption.
+- `<StateTrace title="..." lanes={[{ name, scope, steps: [{ when, text, tone }], outcome }]} />`: stored state over time, one lane per scope, side by side when there is room. `text` may contain `<code>`.
+- `<Schema title="..." tables={[{ name, note, columns: [{ name, type, key, note, added }] }]} relation={{ label, cardinality }} />`: a data model, one card per table; `added` marks proposed columns.
+- `<RerunResolver />`: the interactive Airflow 3.3 rerun-version ladder used in the Airflow reruns post. Its rules live in `rerun-resolver.ts`.
+
+Animated components play once when scrolled into view, and render static with reduced motion or without JavaScript.
+
 Case studies end with **What broke, and what changed** (where something did) and **What I’d do differently now**.
 
 ## Add a project or case study

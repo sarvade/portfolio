@@ -1,0 +1,215 @@
+---
+/*
+  Decision matrix: a table on wide screens, one card per row on narrow ones
+  (container query), so four columns never force sideways scrolling on a phone.
+  Only one layout is displayed at a time, so screen readers get one copy.
+
+  Cell values listed in `chips` render as small labels with a tone, which makes
+  a column like "Original / Latest" scannable at a glance.
+*/
+interface Props {
+  title: string;
+  /** Header labels; the first column is the row label. */
+  columns: string[];
+  rows: string[][];
+  chips?: Record<string, 'signal' | 'caution' | 'muted'>;
+  caption?: string;
+}
+
+const { title, columns, rows, chips = {}, caption } = Astro.props;
+const tone = (value: string) => chips[value];
+---
+
+<figure class="matrix">
+  <p class="matrix-title">{title}</p>
+
+  <table class="matrix-wide">
+    <caption class="visually-hidden">{title}</caption>
+    <thead>
+      <tr>{columns.map((col) => <th scope="col">{col}</th>)}</tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr>
+            {row.map((cell, i) =>
+              i === 0 ? (
+                <th scope="row">{cell}</th>
+              ) : (
+                <td>{tone(cell) ? <span class={`chip chip-${tone(cell)}`}>{cell}</span> : cell}</td>
+              ),
+            )}
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+
+  <ul class="matrix-cards">
+    {
+      rows.map((row) => (
+        <li class="card">
+          <p class="card-title">{row[0]}</p>
+          <dl>
+            {row.slice(1).map((cell, i) => (
+              <div class="card-pair">
+                <dt>{columns[i + 1]}</dt>
+                <dd>{tone(cell) ? <span class={`chip chip-${tone(cell)}`}>{cell}</span> : cell}</dd>
+              </div>
+            ))}
+          </dl>
+        </li>
+      ))
+    }
+  </ul>
+
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .matrix {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+  }
+
+  .matrix-title {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  /* Wide layout: a real table (prose table styles reset here) */
+  .matrix-wide {
+    display: none;
+    width: 100%;
+    margin-top: var(--space-3);
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .matrix-wide th,
+  .matrix-wide td {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.45;
+  }
+
+  .matrix-wide thead th {
+    padding-top: 0;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-bottom-color: var(--rule-strong);
+  }
+
+  .matrix-wide tbody th {
+    color: var(--text);
+    font-weight: 650;
+  }
+
+  .matrix-wide td {
+    color: var(--text-muted);
+  }
+
+  .matrix-wide tbody tr:last-child > * {
+    border-bottom: 0;
+  }
+
+  /* Narrow layout: one card per row */
+  .matrix-cards {
+    display: grid;
+    gap: var(--space-3);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .card {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+
+  .card-title {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .card dl {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+  }
+
+  .card-pair {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: baseline;
+  }
+
+  .card dt {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .card dd {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+
+  .chip {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 0.75rem;
+    font-weight: 650;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+
+  .chip-signal {
+    border-color: var(--signal);
+    background: color-mix(in srgb, var(--signal) 14%, transparent);
+  }
+
+  .chip-caution {
+    border-color: var(--caution);
+    background: color-mix(in srgb, var(--caution) 14%, transparent);
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @container (min-width: 600px) {
+    .matrix-wide {
+      display: table;
+    }
+
+    .matrix-cards {
+      display: none;
+    }
+  }
+</style>

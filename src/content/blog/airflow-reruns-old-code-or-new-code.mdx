@@ -1,0 +1,301 @@
+---
+title: 'Old code or new code? What Airflow 3.3 changed about reruns and backfills'
+description: Airflow 3.3 reruns a cleared run on its original code by default but backfills on the latest. When each is right, and what versioning can't pin.
+pubDate: 2026-10-07T15:00:00Z
+draft: true
+tags:
+  - airflow
+  - pipelines
+  - reliability
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import RerunResolver from '../../components/viz/RerunResolver.astro';
+import Partitions from '../../components/viz/Partitions.astro';
+import StateTrace from '../../components/viz/StateTrace.astro';
+import Schema from '../../components/viz/Schema.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+
+Here is a situation Airflow 3 makes easy to walk into. On Thursday you merge a fix for a currency conversion bug in a daily revenue DAG. On Friday someone notices Tuesday's run failed halfway, clears it, and it goes green. Which version of the code just rewrote Tuesday's revenue?
+
+Before Airflow 3, the answer was simple: whatever code was on disk, so the new code. In Airflow 3.3 with a Git-backed DAG bundle, clearing a run from the UI uses, by default, the code the run was originally created with, so Tuesday was rebuilt with the bug. A backfill over the same date would use the new code, but only if you tell it to reprocess dates that already have a run. By default it skips them. Each default is defensible on its own. The trouble starts when the person clicking the button doesn't know which one they're getting.
+
+Airflow 3.3 added a setting that makes the choice explicit. This post covers what changed, why the defaults differ, a way to decide which code a rerun should use, and the parts of a rerun that versioning doesn't pin, including the new state store. The facts come from the Airflow docs, release notes and the 3.3.2 source code, linked where they're used. Where I'm reasoning beyond them, I say so.
+
+## What changed
+
+Airflow 3.0, released in April 2025, introduced DAG versioning: a run [completes on the version it started with](https://airflow.apache.org/blog/airflow-three-point-oh-is-here/), even if someone deploys new code while it's running. Which version a *rerun* uses has shifted more than once since then; the [release notes](https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html) record changes to it in 3.0.2 and 3.1.6, for example. [Airflow 3.3.0](https://airflow.apache.org/docs/apache-airflow/3.3.0/release_notes.html), released on 6 July 2026, settled the defaults and made them configurable: a new `rerun_with_latest_version` setting decides whether a cleared, rerun or backfilled run uses its original bundle version or the latest one, and you can set it for a DAG or a whole deployment instead of deciding on every request.
+
+The setting resolves in this order, per the [DAG bundles documentation](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/dag-bundles.html) and the [3.3.2 source](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/api_fastapi/common/dagbag.py#L111-L132):
+
+1. An explicit choice in the request: the `run_on_latest_version` field in the REST API, which the UI's "Run with latest bundle version" checkbox sends, or `--run-on-latest-version` on `airflow backfill create`.
+2. `rerun_with_latest_version` on the DAG itself.
+3. [`[core] rerun_with_latest_version`](https://airflow.apache.org/docs/apache-airflow/stable/configurations-ref.html#rerun-with-latest-version) in the Airflow config.
+4. The call-site default: `False` for clear and rerun, `True` for backfills.
+
+When the UI shows that checkbox, which it does only when the run's version differs from the latest or is missing, it [pre-fills it](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/ui/src/components/Clear/useRerunWithLatestVersion.ts) from levels 2 to 4, so it shows the resolved default until someone changes it.
+
+One gap to know about: this covers clears from the UI and the REST API, and backfills from any entry point. In 3.3.2, the `airflow tasks clear` and `airflow dags clear` CLI commands don't read the setting at all; they always keep the original version. Here is the whole decision, including the exceptions described below. Change the inputs to see which level decides.
+
+<RerunResolver caption="Built from the DAG bundles docs and the Airflow 3.3.2 source. True means run on the latest version." />
+
+Four details matter more than they look:
+
+- **Of the bundles Airflow ships, only `GitDagBundle` versions code, and versioning can be switched off.** With `LocalDagBundle`, `S3DagBundle` or `GCSDagBundle`, tasks always run against the latest code. The same goes for DAGs with [`disable_bundle_versioning`](https://airflow.apache.org/docs/apache-airflow/stable/configurations-ref.html#disable-bundle-versioning) set, on the DAG or in config, because their runs never record a bundle version.
+- **Some runs have no version to go back to.** As of 3.3.2, a run carried over from Airflow 2, or one whose version was removed by `airflow db clean`, always reruns on the latest code. That release also fixed cleared tasks getting stuck when a run has no version, so on 3.3.0 and 3.3.1 this case is rougher.
+- **The defaults differ by entry point.** Clearing a run keeps its original code. Backfilling the same date uses the latest, unless the DAG or the config says otherwise. Dates a backfill creates fresh, because they had no run yet, always start on the latest version.
+- **A backfill skips dates that already ran.** Its [reprocess behavior](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/backfill.html) defaults to `none`, shown as Missing Runs in the UI: if a date already has a run, failed or successful, the backfill leaves it alone. Restating history needs `completed` (All Runs), or `failed` (Missing and Errored Runs) to add failed dates to the missing ones. The docs list the options; the default is in the [3.3.2 CLI source](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/cli/cli_config.py#L413-L420).
+
+The latest patch release, 3.3.2, came out on 17 September 2026, and Amazon's managed Airflow service has [supported 3.3.1 since 1 September](https://aws.amazon.com/about-aws/whats-new/2026/09/amazon-mwaa-apache-airflow-3-3-1/), Teams coming from Airflow 2, where clears always used the latest code, get a change in what "clear" means as part of the upgrade, whether they planned for one or not.
+
+## Why the defaults differ
+
+The 3.3 release notes describe the split as preserving each path's historical behavior. My read of why that's also a sensible default: the two operations usually mean different things.
+
+A clear is usually about finishing what a run started. A worker died, a connection timed out, an upstream table landed late. The faithful thing is to run the same logic again, so the output matches what that run would have produced if nothing had gone wrong.
+
+A backfill usually exists because something changed. You wrote a new model, fixed a bug, or added a table, and now you want history to reflect it. Running old code over history would defeat the purpose.
+
+So the defaults encode intent. The problem is that intent varies from one rerun to the next, and the person clicking "clear" on a Friday afternoon is rarely thinking about bundle versions.
+
+## A rerun has three inputs, and versioning pins one
+
+It helps to think of every task run as a function of three things: the code, the input data, and any state it reads. Versioning gives you control over the first one only.
+
+<Flow
+  title="What a rerun actually depends on"
+  steps={[
+    { label: 'Code', note: 'pinned with a Git bundle', tone: 'signal' },
+    { label: 'Input data', note: 'whatever the tables hold now', tone: 'caution' },
+    { label: 'Stored state', note: 'task state per run, asset state shared', tone: 'caution' },
+    { label: 'Output', note: 'only as reproducible as all three' },
+  ]}
+/>
+
+**Input data.** Rerunning Tuesday's code next Friday reads Friday's tables. If a dimension was overwritten in place since Tuesday, or late rows arrived, the rerun computes something Tuesday's run never saw. Pinning code without pinning data gives you a faithful replay of the logic, not of the result.
+
+**State.** Airflow 3.3 also added a [state store](https://airflow.apache.org/docs/apache-airflow/3.3.0/release_notes.html) with two scopes. [Task state](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/models/task_state_store.py) belongs to one task in one DAG run (one namespace per map index for mapped tasks): retries share it, and other runs get their own. Asset state belongs to an asset and is shared by every run that reads or writes it. Both are useful, and both change what a rerun does, which I come back to under failure modes.
+
+## Deciding which code a rerun should use
+
+This is the decision framework I'd put in a team runbook. Start from why you're rerunning, not from which button is closest.
+
+<Matrix
+  title="Which code should this rerun use?"
+  columns={['Why you’re rerunning', 'Code', 'Inputs', 'What to watch']}
+  rows={[
+    ['The task crashed or timed out', 'Original', 'Current', 'Nothing special. This is what the clear default is for.'],
+    ['Upstream data was late or corrected', 'Original', 'Current, corrected', 'Neighboring dates may need the same correction.'],
+    ['You fixed a bug in the logic', 'Latest', 'Current', 'Backfill every affected date with All Runs, not just the one that failed.'],
+    ['A metric definition changed', 'Latest', 'Current', 'Restate into a new version, and announce it.'],
+    ['An audit: reproduce a past number', 'Original', 'As of that date', 'Write to a scratch table, never back to production.'],
+  ]}
+  chips={{ Original: 'muted', Latest: 'signal' }}
+/>
+
+Two rows deserve more explanation.
+
+**The bug fix.** Back to the opening example: the currency fix merged on Thursday affects every date since the bug shipped, say the whole of September. Clearing Tuesday with the default reruns the buggy code. Clearing Tuesday with the latest code fixes Tuesday and leaves the other 29 days on the old logic, so the table now disagrees with itself and nobody can see where. A backfill over September with the default reprocess behavior does nothing at all, because every date already has a run. The right move is a backfill over the whole range with reprocess set to `completed`, on the latest code, followed by a check that every date was produced by the same version. The latest code is the backfill default only if neither the DAG nor the config says `False`, so for a restatement I'd pass `--run-on-latest-version` explicitly rather than rely on it.
+
+<Partitions
+  title="One fix, four reactions. One cell per day in September."
+  legend={[
+    { key: 'o', label: 'Built by the buggy code', tone: 'caution' },
+    { key: 'n', label: 'Built by the fixed code', tone: 'signal' },
+    { key: 'x', label: 'Failed, no complete output', tone: 'empty' },
+  ]}
+  rows={[
+    { label: 'Before anyone acts', cells: 'o'.repeat(28) + 'xo', note: 'Every day ran on the buggy code. Tuesday, 29 September, failed halfway.' },
+    { label: 'Clear Sep 29 with the defaults', cells: 'o'.repeat(30), marks: [28], note: 'Rebuilt on the original code. Green, and still wrong.' },
+    { label: 'Clear Sep 29 with the latest bundle version', cells: 'o'.repeat(28) + 'no', marks: [28], note: 'Sep 29 is fixed and the other 29 days are not. The table now disagrees with itself.' },
+    { label: 'Backfill Sep 1 to 30, reprocess left on Missing Runs', cells: 'o'.repeat(28) + 'xo', note: 'Every date already has a run, so no run is created. Sep 29 is still failed.' },
+    { label: 'Backfill Sep 1 to 30 with All Runs', cells: 'n'.repeat(30), marks: 'all', note: 'Every date is rerun on the latest code. One version across the range.' },
+  ]}
+  axis={['Sep 1', 'Sep 30']}
+  caption="Illustrative. Each row is an alternative, starting from the top row."
+/>
+
+Before running a backfill like that, `airflow backfill create --dry-run` with the same arguments lists only the runs it would actually attempt. If the list is empty, check the reprocess setting first. (It is also empty when every run in the range is still queued or running.)
+
+**The audit.** Finance asks why the dashboard showed a certain number on 3 September. Rerunning the original code against today's data won't answer that, for the reasons in the previous section. You need the original code and the data as it was. Table formats with time travel make the second half possible, as long as the snapshot hasn't been [expired](https://iceberg.apache.org/docs/latest/maintenance/#expire-snapshots) yet. With Apache Iceberg in Spark SQL, for example, you can [read a table as of a timestamp](https://iceberg.apache.org/docs/latest/spark-queries/):
+
+```sql
+-- Reproduce what the 3 September run could have seen, into a scratch table.
+-- Use the time that run actually read the table (from its task log);
+-- Spark interprets the literal in the session time zone.
+create table scratch.revenue_check_2026_09_03 as
+select order_id, amount, currency
+from   prod.sales.orders timestamp as of '2026-09-04 00:10:00'
+where  order_date = '2026-09-03';
+```
+
+## Failure modes
+
+**The fix that didn't run.** Someone merges a fix, clears the failed run, sees green, and closes the ticket. The rerun used the original code, so the bug is back in the output. This is an easy mistake to make, because it looks exactly like success.
+
+**The backfill that rewrote nothing.** Left on Missing Runs, a backfill over dates that already ran creates no runs for them. The UI form refuses to submit when nothing at all would run, but the CLI and REST API accept it and record each skipped date as ["already exists"](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/models/backfill.py#L204-L213) in the metadata database. Over a range where only some dates are missing, every entry point runs those and skips the rest. Either way, nothing tells you the dates you meant to fix were left alone.
+
+**The mixed-version table.** Reprocessing part of a range on new code leaves a table where some partitions follow one definition and some follow another. Nothing fails. Charts just show a step that isn't real.
+
+**Pinned code, moving data.** A rerun on the original code against mutable tables is neither the old result nor a correct new one. If you need reproducibility, you need snapshots or point-in-time joins, not just a commit hash.
+
+**Silent fallback to latest.** Non-Git bundles, DAGs with `disable_bundle_versioning`, runs carried over from Airflow 2, and runs whose version was removed by `airflow db clean` all rerun on the latest code regardless of the setting. The UI does show this for version-less runs, as a checked box you can't change; the CLI and API don't. If your runbook says "clearing keeps the original code", it is only true for some of your runs.
+
+The next two are my analysis of the 3.3 code and its own examples, not warnings from the docs.
+
+**A stored handle that survives the clear.** Task state is keyed to the DAG run, and a clear reruns the same DAG run. With `[state_store] clear_on_success` at its default of `False`, whatever a task stored stays after it succeeds, until retention cleanup removes it (by default 30 days after the last update, and never for keys written with no expiry). The [configuration reference](https://airflow.apache.org/docs/apache-airflow/stable/configurations-ref.html#clear-on-success) says keeping it is deliberate, so people can inspect job IDs and watermarks afterwards. Airflow's [task state example](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/example_dags/example_task_state_store.py) stores a job ID and, on the next attempt, reattaches to that job instead of submitting a new one. That is exactly right for a retry. After a bug fix, it means that even a clear on the latest code reattaches to the job the buggy code submitted. If a task stores handles like this, delete its state before a deliberate recompute (the 3.3 REST API has an endpoint for that), or store the code version next to the handle and ignore handles written by a different version.
+
+**A watermark shared across dates.** Asset state has the opposite scope: one value per asset, shared by every run. Airflow's [asset state example](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/example_dags/example_asset_state_store.py) keeps a load watermark there: read it, load newer records, move it forward. Rerun last Tuesday with that pattern and it reads the current watermark, so it loads whatever arrived since the latest run instead of Tuesday's records. For date-partitioned tables, derive the window from the run's data interval, and keep watermarks for loads that really are incremental.
+
+<StateTrace
+  title="The same rerun, two kinds of stored state"
+  lanes={[
+    {
+      name: 'Task state',
+      scope: 'one task in one DAG run',
+      steps: [
+        { when: 'Sep 28 run, try 1', text: 'No <code>job_id</code> stored. Submits job J1, stores <code>job_id = J1</code>, then the worker dies.' },
+        { when: 'Same run, try 2', text: 'Finds <code>job_id = J1</code> and reattaches instead of submitting a duplicate. This is what the store is for.', tone: 'signal' },
+        { when: 'Run succeeds', text: 'The state stays: <code>clear_on_success</code> is off by default, and this key has no expiry.' },
+        { when: 'Friday: Sep 28 cleared on the latest code', text: 'A clear reruns the same DAG run, so the fixed code finds <code>job_id = J1</code> again.', tone: 'caution' },
+      ],
+      outcome: 'It reattaches to J1, the job the buggy code submitted. The fixed logic never runs.',
+    },
+    {
+      name: 'Asset state',
+      scope: 'the asset, shared by every run',
+      steps: [
+        { when: 'Sep 29 run', text: 'Loads rows newer than <code>watermark</code>, then moves it forward.' },
+        { when: 'Sep 30 and Oct 1 runs', text: 'Each one moves <code>watermark</code> forward again.', tone: 'signal' },
+        { when: 'Friday: Sep 29 cleared', text: 'Reads the same <code>watermark</code>, last moved by the Oct 1 run.', tone: 'caution' },
+      ],
+      outcome: 'It loads only rows that arrived after the Oct 1 run. Sep 29’s rows are not loaded again.',
+    },
+  ]}
+  caption="Illustrative. The scopes come from the Airflow 3.3.2 source, and the patterns follow Airflow's own state store examples."
+/>
+
+**Retries that hide data problems.** Airflow 3.3 also added [pluggable retry policies](https://airflow.apache.org/docs/apache-airflow/3.3.0/release_notes.html), so you can retry only on specific exceptions. Use that. Retrying a network timeout is sensible; retrying a failed row-count check three times just delays the alert and burns compute.
+
+## Making the choice explicit
+
+Don't let the call-site default make the decision for you. Set it in config, and override it on DAGs where you know the answer. Then make the version visible in the data, from the same code that does the work:
+
+```python
+from datetime import datetime
+
+from airflow.sdk import DAG, task
+
+# Bump this in the same commit as any change to the revenue logic.
+# It ships with the code, so a pinned rerun stamps the old value.
+CODE_VERSION = "2026-10-01-fx-fix"
+
+with DAG(
+    dag_id="daily_revenue",
+    start_date=datetime(2026, 1, 1),
+    schedule="@daily",
+    # UI and API clears of this DAG pick up fixes. Restatements are
+    # full-range backfills, so mixed versions are caught by a check.
+    rerun_with_latest_version=True,
+):
+
+    @task
+    def build_revenue(data_interval_start=None, run_id=None):
+        # Overwrite the partition for data_interval_start and write
+        # CODE_VERSION and run_id into every row.
+        ...
+
+    build_revenue()
+```
+
+Why a constant in the code and not an environment variable? With a Git bundle, a pinned rerun runs old DAG code on workers that were deployed with today's settings. A version read from a variable set at deploy time would stamp the new version on output the old code produced. A constant committed next to the logic moves with it.
+
+Airflow knows which bundle version a run used, but the table that consumers query doesn't. Two small additions fix that: version columns on the table itself, and a log of every write.
+
+<Schema
+  title="Stamp every write with the code that made it"
+  tables={[
+    {
+      name: 'mart.daily_revenue',
+      note: 'one partition per day, overwritten on rerun',
+      columns: [
+        { name: 'dt', type: 'date', key: 'partition' },
+        { name: 'currency', type: 'string' },
+        { name: 'revenue', type: 'decimal(18,2)' },
+        { name: 'code_version', type: 'string', added: true, note: 'the constant shipped with the DAG code' },
+        { name: 'airflow_run_id', type: 'string', added: true, note: 'the run that wrote this partition' },
+        { name: 'loaded_at', type: 'timestamp', added: true },
+      ],
+    },
+    {
+      name: 'ops.partition_writes',
+      note: 'new, append-only, one row per partition write',
+      columns: [
+        { name: 'table_name', type: 'string', key: 'pk' },
+        { name: 'dt', type: 'date', key: 'pk', note: 'the partition that was written' },
+        { name: 'written_at', type: 'timestamp', key: 'pk' },
+        { name: 'airflow_run_id', type: 'string' },
+        { name: 'run_type', type: 'string', note: 'for example scheduled, manual or backfill' },
+        { name: 'code_version', type: 'string' },
+        { name: 'reason', type: 'string', note: 'passed in with the backfill’s --dag-run-conf' },
+        { name: 'row_count', type: 'bigint' },
+      ],
+    },
+  ]}
+  relation={{ label: 'dt', cardinality: 'one partition, many writes' }}
+  caption="A sketch, not a standard. The table holds each partition's current version; the log keeps every rewrite and why it happened."
+/>
+
+For a regular time-based DAG, a backfill that reprocesses an existing run [clears that same run](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/models/backfill.py#L573-L618), marks it as a backfill and replaces its conf with the backfill's `--dag-run-conf`, so a reason given at restatement time can reach the log. Then the check after any restatement is one query:
+
+```sql
+-- After restating September, every day should exist and come from one version.
+-- coalesce, because count(distinct ...) skips NULLs: a partition written before
+-- the column existed would otherwise hide.
+select count(distinct coalesce(code_version, 'unstamped')) as versions,
+       count(distinct dt)                                 as days,
+       min(dt)                                            as first_day,
+       max(dt)                                            as last_day
+from   mart.daily_revenue
+where  dt between '2026-09-01' and '2026-09-30';
+-- expect versions = 1 and days = 30
+```
+
+## When versioning won't save you
+
+Versioning pins the files in your DAG bundle. Everything else a task touches is whatever is deployed today: Python packages installed on the workers, the container image, environment variables, Airflow Variables and Connections. If your transformation logic lives in an internal package rather than in the DAG repo, a rerun "on the original code" runs old DAG files that call today's package. Either keep the logic in the bundle, or pin and stamp the package version too.
+
+Versioning also does nothing for tasks whose effects live outside your tables: sending emails, calling a partner's API, publishing to a topic, charging a card. Rerunning those on any version repeats the side effect, so they need their own idempotency keys or a guard that checks whether the work was already done.
+
+And it doesn't make a non-idempotent task safe. A task that appends rows will append them again on the original code just as happily as on the latest one. Overwriting a partition or merging on a key is still the foundation; versioning sits on top of it. I wrote about that foundation in [Make reruns boring](../make-reruns-boring/).
+
+## What I'd do this week if I ran Airflow 3.3
+
+1. Check which bundle type each deployment uses, and whether `disable_bundle_versioning` is set anywhere. If versioning is off, clears always use the latest code.
+2. Set `[core] rerun_with_latest_version` deliberately, and write down which way you chose and why.
+3. Add the decision table above to the on-call runbook, with one extra rule: a restatement is a backfill with `--reprocess-behavior completed --run-on-latest-version`, checked first with `--dry-run`. And note that `airflow tasks clear` ignores the setting.
+4. Stamp outputs with a code version that ships in the code, and check uniformity after every restatement.
+5. Compare your `airflow db clean` retention with how far back you realistically rerun.
+6. Find the tasks that use the state store. For task state, decide what a clear should do with a stored handle. For asset state, make sure date-partitioned reruns don't read a shared watermark.
+7. Limit retries to errors that are actually transient.
+
+The short version: Airflow 3.3 gave you a real choice between rerunning the past as it was and rerunning it as it should have been. Make that choice on purpose, and remember that the code is only one of the three things a rerun depends on.
+
+## References
+
+- [Apache Airflow 3.3.0 release notes](https://airflow.apache.org/docs/apache-airflow/3.3.0/release_notes.html)
+- [Apache Airflow release notes (stable, 3.3.2)](https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html)
+- [Airflow documentation: DAG bundles and versioning](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/dag-bundles.html)
+- [Airflow documentation: Backfill](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/backfill.html)
+- [Airflow configuration reference](https://airflow.apache.org/docs/apache-airflow/stable/configurations-ref.html)
+- [Apache Airflow 3 is Generally Available](https://airflow.apache.org/blog/airflow-three-point-oh-is-here/)
+- [Airflow 3.3.2 source: backfill CLI arguments](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/cli/cli_config.py#L413-L420)
+- [Airflow 3.3.2 source: how the setting is resolved](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/api_fastapi/common/dagbag.py#L111-L132)
+- [Airflow 3.3.2 source: backfill reprocessing and skip reasons](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/models/backfill.py)
+- [Airflow 3.3.2 source: task state store model](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/models/task_state_store.py)
+- [Airflow 3.3.2 source: task state example DAG](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/example_dags/example_task_state_store.py)
+- [Airflow 3.3.2 source: asset state example DAG](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/example_dags/example_asset_state_store.py)
+- [Airflow 3.3.2 source: UI default for the latest-version checkbox](https://github.com/apache/airflow/blob/3.3.2/airflow-core/src/airflow/ui/src/components/Clear/useRerunWithLatestVersion.ts)
+- [Amazon MWAA supports Apache Airflow version 3.3.1](https://aws.amazon.com/about-aws/whats-new/2026/09/amazon-mwaa-apache-airflow-3-3-1/)
+- [Apache Iceberg: Spark queries and time travel](https://iceberg.apache.org/docs/latest/spark-queries/)
+- [Apache Iceberg: expiring snapshots](https://iceberg.apache.org/docs/latest/maintenance/#expire-snapshots)
