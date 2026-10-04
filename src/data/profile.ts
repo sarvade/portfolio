@@ -197,7 +197,7 @@ export type Principle = {
   code?: string;
 };
 
-/** The "Approach" section: habits backed by real work, some with a small illustrative pattern. */
+/** The "Engineering principles" section: habits backed by real work, some with a small illustrative pattern. */
 export const principles: Principle[] = [
   {
     title: 'Validate before anyone sees it',

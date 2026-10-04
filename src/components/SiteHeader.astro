@@ -10,10 +10,10 @@ const { hasPosts } = Astro.props;
 
 const links = [
   { href: url('#work'), label: 'Work', section: 'work' },
-  ...(hasPosts ? [{ href: url('blog/'), label: 'Blog', section: 'blog' }] : []),
   { href: url('#experience'), label: 'Experience', section: 'experience' },
-  { href: url('#approach'), label: 'Approach', section: 'approach' },
+  { href: url('#principles'), label: 'Principles', section: 'principles' },
   { href: url('#skills'), label: 'Skills', section: 'skills' },
+  ...(hasPosts ? [{ href: url('blog/'), label: 'Blog', section: 'blog' }] : []),
   { href: url('#about'), label: 'About', section: 'about' },
   { href: url('#contact'), label: 'Contact', section: 'contact' },
 ];

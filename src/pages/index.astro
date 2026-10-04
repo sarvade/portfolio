@@ -86,6 +86,36 @@ const jsonLd = {
     </div>
   </section>
 
+  <section id="experience" class="section" aria-labelledby="experience-title">
+    <div class="container section-grid reveal">
+      <div class="section-head">
+        <h2 id="experience-title">Experience</h2>
+        <p>5+ years building data pipelines, canonical datasets, and the checks that keep them correct.</p>
+      </div>
+      <Experience />
+    </div>
+  </section>
+
+  <section id="principles" class="section" aria-labelledby="principles-title">
+    <div class="container section-grid reveal">
+      <div class="section-head">
+        <h2 id="principles-title">Engineering principles</h2>
+        <p>How I make decisions on production data systems. Some come with a short pattern; the snippets are illustrative, not production code.</p>
+      </div>
+      <Approach />
+    </div>
+  </section>
+
+  <section id="skills" class="section" aria-labelledby="skills-title">
+    <div class="container section-grid reveal">
+      <div class="section-head">
+        <h2 id="skills-title">Skills</h2>
+        <p>Filter by area. Skills with a dot link to a case study where I used them.</p>
+      </div>
+      <Skills />
+    </div>
+  </section>
+
   {
     posts.length > 0 && (
       <section id="blog" class="section" aria-labelledby="blog-title">
@@ -117,36 +147,6 @@ const jsonLd = {
     )
   }
 
-  <section id="experience" class="section" aria-labelledby="experience-title">
-    <div class="container section-grid reveal">
-      <div class="section-head">
-        <h2 id="experience-title">Experience</h2>
-        <p>5+ years building data pipelines, canonical datasets, and the checks that keep them correct.</p>
-      </div>
-      <Experience />
-    </div>
-  </section>
-
-  <section id="approach" class="section" aria-labelledby="approach-title">
-    <div class="container section-grid reveal">
-      <div class="section-head">
-        <h2 id="approach-title">Approach</h2>
-        <p>The habits behind the work above. Some come with the pattern they boil down to; the snippets are illustrative, not production code.</p>
-      </div>
-      <Approach />
-    </div>
-  </section>
-
-  <section id="skills" class="section" aria-labelledby="skills-title">
-    <div class="container section-grid reveal">
-      <div class="section-head">
-        <h2 id="skills-title">Skills</h2>
-        <p>Filter by area. Skills with a dot link to a case study where I used them.</p>
-      </div>
-      <Skills />
-    </div>
-  </section>
-
   <section id="about" class="section" aria-labelledby="about-title">
     <div class="container section-grid reveal">
       <div class="section-head">
@@ -155,7 +155,6 @@ const jsonLd = {
       <About />
     </div>
   </section>
-
 
   <section id="contact" class="section" aria-labelledby="contact-title">
     <div class="container section-grid reveal">
