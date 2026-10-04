@@ -7,6 +7,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import PostList from '../../components/PostList.astro';
 import { getPosts, type PostEntry } from '../../lib/content';
+import { url } from '../../lib/url';
 
 export async function getStaticPaths() {
   const posts = await getPosts();
@@ -22,6 +23,7 @@ const { posts } = Astro.props;
 
 <BaseLayout title="Blog" description="Notes on data engineering and AI by Sai S Sarvade: validation, reruns, query plans, and where LLMs help.">
   <div class="container blog-index">
+    <a class="back" href={url('#blog')}>Back to the home page</a>
     <header>
       <h1>Blog</h1>
       <p>Notes from building pipelines: validation, reruns, query plans, and where AI actually helps. New posts roughly once a week.</p>
@@ -36,7 +38,13 @@ const { posts } = Astro.props;
     padding-bottom: var(--space-9);
   }
 
+  .back {
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
   header {
+    margin-top: var(--space-6);
     margin-bottom: var(--space-6);
   }
 

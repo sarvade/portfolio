@@ -8,12 +8,16 @@ interface Props {
 }
 const { hasPosts } = Astro.props;
 
+// On the blog and case-study pages, mark the matching menu item as the current page.
+const path = Astro.url.pathname;
+const currentSection = path.includes('/blog/') ? 'blog' : path.includes('/work/') ? 'work' : undefined;
+
 const links = [
   { href: url('#work'), label: 'Work', section: 'work' },
   { href: url('#experience'), label: 'Experience', section: 'experience' },
   { href: url('#principles'), label: 'Principles', section: 'principles' },
   { href: url('#skills'), label: 'Skills', section: 'skills' },
-  ...(hasPosts ? [{ href: url('blog/'), label: 'Blog', section: 'blog' }] : []),
+  ...(hasPosts ? [{ href: url('#blog'), label: 'Blog', section: 'blog' }] : []),
   { href: url('#about'), label: 'About', section: 'about' },
   { href: url('#contact'), label: 'Contact', section: 'contact' },
 ];
@@ -31,7 +35,7 @@ const links = [
         {
           links.map((link) => (
             <li>
-              <a href={link.href} data-section={link.section}>
+              <a href={link.href} data-section={link.section} aria-current={link.section === currentSection ? 'page' : undefined}>
                 {link.label}
               </a>
             </li>
@@ -210,9 +214,12 @@ const links = [
 
   // Mark the nav link for the section currently in view (home page only).
   const navLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.nav-links a[data-section]'));
-  const sections = navLinks
-    .map((link) => document.getElementById(link.dataset.section ?? ''))
-    .filter((el): el is HTMLElement => el !== null);
+  const isHome = document.getElementById('hero-title') !== null;
+  const sections = isHome
+    ? navLinks
+        .map((link) => document.getElementById(link.dataset.section ?? ''))
+        .filter((el): el is HTMLElement => el !== null)
+    : [];
 
   if (sections.length > 0 && 'IntersectionObserver' in window) {
     const observer = new IntersectionObserver(
