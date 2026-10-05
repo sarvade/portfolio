@@ -15,7 +15,6 @@ const currentSection = path.includes('/blog/') ? 'blog' : path.includes('/work/'
 const links = [
   { href: url('#work'), label: 'Work', section: 'work' },
   { href: url('#experience'), label: 'Experience', section: 'experience' },
-  { href: url('#principles'), label: 'Principles', section: 'principles' },
   { href: url('#skills'), label: 'Skills', section: 'skills' },
   ...(hasPosts ? [{ href: url('#blog'), label: 'Blog', section: 'blog' }] : []),
   { href: url('#about'), label: 'About', section: 'about' },
@@ -222,14 +221,20 @@ const links = [
     : [];
 
   if (sections.length > 0 && 'IntersectionObserver' in window) {
+    // Contact is nested inside About, so several targets can cross the line at
+    // once. Track which ones are in the band and mark the last one in page order.
+    const inBand = new Set<string>();
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          for (const link of navLinks) {
-            if (link.dataset.section === entry.target.id) link.setAttribute('aria-current', 'location');
-            else link.removeAttribute('aria-current');
-          }
+          if (entry.isIntersecting) inBand.add(entry.target.id);
+          else inBand.delete(entry.target.id);
+        }
+        const current = [...sections].reverse().find((section) => inBand.has(section.id))?.id;
+        if (!current) return;
+        for (const link of navLinks) {
+          if (link.dataset.section === current) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
         }
       },
       { rootMargin: '-45% 0px -50% 0px' },

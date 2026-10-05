@@ -4,18 +4,23 @@ import { url } from '../lib/url';
 
 interface Props {
   items: WorkEntry[];
+  /**
+   * Home page: a card grid with the headline figure, title and org. The summary
+   * is left to the case study itself, so the home page stays short.
+   */
+  compact?: boolean;
 }
-const { items } = Astro.props;
+const { items, compact = false } = Astro.props;
 ---
 
-<ul class="work-list">
+<ul class:list={['work-list', { compact }]}>
   {
     items.map((item) => (
       <li class="work-row">
         <h3 class="work-title">
           <a href={url(`work/${item.id}/`)}>{item.data.title}</a>
         </h3>
-        <p class="work-summary">{item.data.summary}</p>
+        {!compact && <p class="work-summary">{item.data.summary}</p>}
         <p class="work-figure">
           <span class="work-value">{item.data.headline.value}</span>
           <span class="work-label">{item.data.headline.label}</span>
@@ -127,6 +132,58 @@ const { items } = Astro.props;
     content: ', ';
   }
 
+  /* Compact: cards, two per row, the first one full width */
+  .work-list.compact {
+    display: grid;
+    gap: var(--space-4);
+    border-top: 0;
+  }
+
+  .compact .work-row {
+    grid-template-areas:
+      'figure'
+      'title'
+      'org';
+    align-content: start;
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+    transition: border-color 0.2s ease;
+  }
+
+  .compact .work-row:hover {
+    border-color: var(--rule-strong);
+    background: var(--surface);
+  }
+
+  .compact .work-figure {
+    margin-bottom: var(--space-2);
+  }
+
+  .compact .work-label {
+    max-width: 40ch;
+  }
+
+  .compact .work-title {
+    font-size: var(--text-base);
+    line-height: 1.35;
+  }
+
+  .compact .work-title a:focus-visible::after {
+    border-radius: var(--radius-m);
+  }
+
+  @media (min-width: 640px) {
+    .work-list.compact {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .compact .work-row:first-child {
+      grid-column: 1 / -1;
+    }
+  }
+
   @media (min-width: 640px) {
     .work-row {
       grid-template-columns: minmax(10rem, 3fr) minmax(0, 7fr);
@@ -140,6 +197,20 @@ const { items } = Astro.props;
 
     .work-org {
       margin-top: var(--space-1);
+    }
+
+    /* Keep compact cards stacked inside, overriding the row layout above */
+    .compact .work-row {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'figure'
+        'title'
+        'org';
+      padding: var(--space-5);
+    }
+
+    .compact .work-org {
+      margin-top: 0;
     }
   }
 </style>

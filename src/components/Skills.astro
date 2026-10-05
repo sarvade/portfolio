@@ -63,6 +63,11 @@ const proven = skills.reduce((n, g) => n + g.items.filter((s) => s.work).length,
 </div>
 
 <style>
+  /* Lets the swipeable filter row scroll inside the column instead of widening it */
+  .skills {
+    min-width: 0;
+  }
+
   .skill-filters {
     display: none;
     flex-wrap: wrap;
@@ -189,6 +194,35 @@ const proven = skills.reduce((n, g) => n + g.items.filter((s) => s.work).length,
     margin-top: var(--space-5);
     color: var(--text-muted);
     font-size: var(--text-sm);
+  }
+
+  /* Phones: filters in one swipeable row, and a denser cloud */
+  @media (max-width: 599px) {
+    :global(.js) .skill-filters {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-bottom: var(--space-4);
+      padding-bottom: var(--space-2);
+      scrollbar-width: thin;
+    }
+
+    .f-btn {
+      flex: none;
+      min-height: 2.75rem;
+    }
+
+    .skill-cloud {
+      gap: var(--space-2);
+    }
+
+    .pill > a,
+    .pill > span {
+      padding: 0.4em 0.8em;
+    }
+
+    .skills-legend {
+      margin-top: var(--space-4);
+    }
   }
 </style>
 

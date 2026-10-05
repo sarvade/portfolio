@@ -27,8 +27,8 @@ npm run preview    # serve the production build
 | Colors, type scale, spacing | `src/styles/global.css` |
 | Hero pipeline diagram labels | `pipeline` in `src/data/profile.ts` |
 | At-a-glance card, optional "open to roles" line | `glance` and `hero.availability` in `src/data/profile.ts` |
-| Engineering principles section (habits + illustrative snippets) | `principles` in `src/data/profile.ts` |
-| “Scale I work at” and “Results” bands under the hero | `scale` and `impact` in `src/data/profile.ts` |
+| “Scale I work at” band under the hero | `scale` in `src/data/profile.ts` |
+| Experience bullets shown before “Show all” (3 per job) | `shown: true` on highlights in `experience` in `src/data/profile.ts` |
 | Typewriter roles | `hero.roles` in `src/data/profile.ts` |
 | Hero headline (two lines, split at the first period) | `hero.headline` in `src/data/profile.ts`, then `scripts/og/og.html` and `python3 scripts/render-images.py` for the link preview |
 | Colors of the animated name | `--spectrum` in `src/styles/global.css` (one list per theme) |

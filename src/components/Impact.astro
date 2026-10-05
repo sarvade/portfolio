@@ -1,9 +1,8 @@
 ---
-import { impact, scale } from '../data/profile';
+import { scale } from '../data/profile';
 /*
-  Two bands under the hero:
-  - "Scale I work at": a compact row of context numbers.
-  - "Results": six outcomes, each backed by a case study.
+  "Scale I work at": a compact row of context numbers under the hero. Results
+  live in Selected work, so each number appears on the page once.
   Numbers count up once when they first scroll into view. The final values are
   in the HTML, so they show without JS and with reduced motion.
 */
@@ -34,28 +33,6 @@ const decimals = (item: Item) => (item.count !== undefined && !Number.isInteger(
         }
       </ul>
     </div>
-
-    <div class="band band-results">
-      <h2 class="band-title">Results</h2>
-      <ul class="impact-grid">
-        {
-          (impact as Item[]).map((item) => (
-            <li class="impact-item">
-              <span
-                class="impact-value count-up"
-                data-count={item.count}
-                data-prefix={item.prefix ?? ''}
-                data-suffix={item.suffix ?? ''}
-                data-decimals={decimals(item)}
-              >
-                {item.value}
-              </span>
-              <span class="impact-label">{item.label}</span>
-            </li>
-          ))
-        }
-      </ul>
-    </div>
   </div>
 </section>
 
@@ -77,7 +54,6 @@ const decimals = (item: Item) => (item.count !== undefined && !Number.isInteger(
   /* Scale: compact context row */
   .band-scale {
     padding-block: var(--space-6);
-    border-bottom: 1px solid var(--rule);
   }
 
   .scale-grid {
@@ -123,77 +99,6 @@ const decimals = (item: Item) => (item.count !== undefined && !Number.isInteger(
   @media (min-width: 1100px) {
     .scale-grid {
       grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-  }
-
-  /* Results */
-  .band-results {
-    padding-top: var(--space-6);
-  }
-
-  .impact-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .impact-item {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-6) var(--space-4) var(--space-6) 0;
-    border-bottom: 1px solid var(--rule);
-  }
-
-  .impact-item:nth-child(2n) {
-    padding-left: var(--space-4);
-    border-left: 1px solid var(--rule);
-  }
-
-  .impact-value {
-    color: var(--signal);
-    font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
-    font-weight: 750;
-    font-stretch: 125%;
-    letter-spacing: -0.02em;
-    line-height: 1;
-    font-variant-numeric: tabular-nums lining-nums;
-    white-space: nowrap;
-  }
-
-  .impact-label {
-    max-width: 30ch;
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-    line-height: 1.4;
-  }
-
-  @media (min-width: 900px) {
-    .impact-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .impact-item,
-    .impact-item:nth-child(2n) {
-      padding: var(--space-6) var(--space-5);
-      border-left: 1px solid var(--rule);
-    }
-
-    .impact-item:nth-child(3n + 1) {
-      padding-left: 0;
-      border-left: 0;
-    }
-
-    .impact-item:nth-last-child(-n + 3) {
-      border-bottom: 0;
-    }
-  }
-
-  @media (max-width: 899px) {
-    .impact-item:nth-last-child(-n + 2) {
-      border-bottom: 0;
     }
   }
 </style>

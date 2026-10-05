@@ -14,11 +14,21 @@ for (const job of experience) {
     }
   }
 }
+
+// Each job shows its picked highlights; the rest open with "Show all" (native
+// <details>, so it works without JavaScript). Without picks, the first 3 show.
+const split = (job: (typeof experience)[number]) => {
+  const picked = job.highlights.filter((h) => h.shown);
+  const shown = picked.length > 0 ? picked : job.highlights.slice(0, 3);
+  return { shown, more: job.highlights.filter((h) => !shown.includes(h)) };
+};
 ---
 
 <ol class="timeline">
   {
-    experience.map((job) => (
+    experience.map((job) => {
+      const { shown, more } = split(job);
+      return (
       <li class="job" id={`experience-${job.id}`}>
         <p class="job-when">
           {job.start} to {job.end}
@@ -30,7 +40,7 @@ for (const job of experience) {
           <p class="job-where">{job.location}</p>
           {job.context && <p class="job-context">{job.context}</p>}
           <ul class="job-highlights">
-            {job.highlights.map((h) => (
+            {shown.map((h) => (
               <li>
                 {h.text}
                 {h.work && (
@@ -44,9 +54,33 @@ for (const job of experience) {
               </li>
             ))}
           </ul>
+          {more.length > 0 && (
+            <details class="job-more">
+              <summary>
+                <span class="when-closed">Show all {job.highlights.length}</span>
+                <span class="when-open">Show fewer</span>
+              </summary>
+              <ul class="job-highlights">
+                {more.map((h) => (
+                  <li>
+                    {h.text}
+                    {h.work && (
+                      <>
+                        {' '}
+                        <a class="case-link" href={url(`work/${h.work}/`)} aria-label={`Case study: ${titles.get(h.work)}`}>
+                          Case study
+                        </a>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       </li>
-    ))
+      );
+    })
   }
 </ol>
 
@@ -118,6 +152,79 @@ for (const job of experience) {
     font-size: var(--text-sm);
     font-weight: 600;
     white-space: nowrap;
+  }
+
+  /* "Show all": the hidden highlights continue the list above */
+  .job-more {
+    margin-top: var(--space-3);
+    max-width: 66ch;
+  }
+
+  .job-more > .job-highlights {
+    margin-top: var(--space-3);
+  }
+
+  .job-more summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.5rem;
+    color: var(--signal);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .job-more summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* Chevron that turns when open */
+  .job-more summary::after {
+    content: '';
+    width: 0.45em;
+    height: 0.45em;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-0.12em) rotate(45deg);
+  }
+
+  .job-more[open] summary::after {
+    transform: translateY(0.12em) rotate(-135deg);
+  }
+
+  .job-more summary:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .job-more summary:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  .job-more[open] .when-closed,
+  .job-more:not([open]) .when-open {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .job-more summary::after {
+      transition: transform 0.2s ease;
+    }
+
+    .job-more[open] > .job-highlights {
+      animation: more-in 0.3s ease;
+    }
+  }
+
+  @keyframes more-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
   }
 
   @media (min-width: 720px) {
