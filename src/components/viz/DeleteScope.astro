@@ -1,0 +1,611 @@
+---
+/*
+  Interactive: which rows does an Iceberg reader return from an upsert table?
+  Steps through three commits and shows, for every data row, whether a delete
+  applies and why, under equality deletes or after conversion to deletion
+  vectors. Logic lives in delete-scope.ts and is shared with the server render,
+  so without JavaScript this is a static table of the default state.
+*/
+import { COMMITS, DEFAULT_INPUTS, resolve, type Inputs } from './delete-scope';
+
+interface Props {
+  /** Prefix for input names, so two widgets on one page stay independent. */
+  id?: string;
+  title?: string;
+  caption?: string;
+}
+
+const { id = 'ds', title = 'Which rows does the reader return?', caption } = Astro.props;
+
+type Field = keyof Inputs;
+const controls: { field: Field; label: string; options: [string, string][] }[] = [
+  {
+    field: 'asOf',
+    label: 'Read as of commit',
+    options: [
+      ['1', '1'],
+      ['2', '2'],
+      ['3', '3'],
+    ],
+  },
+  {
+    field: 'mode',
+    label: 'Deletes are stored as',
+    options: [
+      ['equality', 'Equality deletes'],
+      ['dv', 'Converted to DVs'],
+    ],
+  },
+  {
+    field: 'rule',
+    label: 'Equality delete applies to data files that are',
+    options: [
+      ['spec', 'Strictly older (spec)'],
+      ['wrong', 'Older or same commit'],
+    ],
+  },
+];
+
+const initial = resolve(DEFAULT_INPUTS);
+const keyList = (keys: number[]) => keys.join(', ');
+---
+
+<figure class="ds" data-ds data-prefix={id}>
+  <p class="ds-head">
+    <span class="ds-kicker">Interactive</span>
+    <span class="ds-title">{title}</span>
+  </p>
+  <p class="ds-hint">
+    An upsert table keyed by <code>id</code>, one partition, three commits. Change the inputs to see which delete hides
+    which row.
+  </p>
+
+  <div class="ds-controls">
+    {
+      controls.map((c) => (
+        <fieldset class="ds-field" data-field={c.field}>
+          <legend class="ds-label">{c.label}</legend>
+          <div class="ds-seg">
+            {c.options.map(([value, label]) => (
+              <label>
+                <input
+                  type="radio"
+                  name={`${id}-${c.field}`}
+                  value={value}
+                  checked={String(DEFAULT_INPUTS[c.field]) === value}
+                  disabled
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ))
+    }
+  </div>
+
+  <ol class="ds-commits" aria-label="Commits">
+    {
+      COMMITS.map((c) => (
+        <li class="ds-commit" data-commit={c.seq} data-active={c.seq <= DEFAULT_INPUTS.asOf ? 'yes' : 'no'}>
+          <p class="ds-commit-head">
+            <span class="ds-seq">seq {c.seq}</span>
+            <span>{c.label}</span>
+          </p>
+          <ul class="ds-files">
+            <li class="ds-file ds-file-data">
+              {c.data.name}: {c.data.rows.map((r) => `#${r.pos} id ${r.id} ${r.status}`).join(', ')}
+            </li>
+            {c.eq && (
+              <li class="ds-file ds-file-eq" data-only="equality" hidden={DEFAULT_INPUTS.mode !== 'equality'}>
+                {c.eq.name}: equality delete, id in ({keyList(c.eq.keys)})
+              </li>
+            )}
+            {c.dvs.map((dv) => (
+              <li class="ds-file ds-file-dv" data-only="dv" hidden={DEFAULT_INPUTS.mode !== 'dv'}>
+                {dv.name}: positions {dv.positions.map((p) => `#${p}`).join(', ')}
+                {c.seq > 2 && dv.file === 'F1' ? ' (replaces the older DV)' : ''}
+              </li>
+            ))}
+            {c.seq === 1 && (
+              <li class="ds-file ds-file-none" data-only="dv" hidden={DEFAULT_INPUTS.mode !== 'dv'}>
+                No deletes
+              </li>
+            )}
+          </ul>
+        </li>
+      ))
+    }
+  </ol>
+
+  <table class="ds-table">
+    <caption class="ds-sr">Every data row in the snapshot, and whether a delete applies</caption>
+    <thead>
+      <tr>
+        <th scope="col">Row (file, seq, position)</th>
+        <th scope="col">Reader sees it?</th>
+      </tr>
+    </thead>
+    <tbody data-rows>
+      {
+        initial.rows.map((r, i) => (
+          <tr data-live={r.live ? 'yes' : 'no'} style={`--i: ${i}`}>
+            <th scope="row">
+              <span class="ds-row-file">
+                {r.file} (seq {r.fileSeq}) #{r.pos}
+              </span>
+              <span class="ds-row-val">
+                id {r.id}, {r.status}
+              </span>
+            </th>
+            <td>
+              <span class="ds-verdict">{r.live ? 'Live' : 'Deleted'}</span>
+              <span class="ds-reason">{r.reason}</span>
+            </td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+
+  <div class="ds-result" data-correct={initial.correct ? 'yes' : 'no'}>
+    <p class="ds-result-label">Result</p>
+    <p class="ds-summary" data-summary aria-live="polite">{initial.summary}</p>
+  </div>
+
+  <noscript><p class="ds-noscript">Turn on JavaScript to change the inputs. Shown: commit 3, equality deletes, the spec’s rule.</p></noscript>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import { resolve, type Inputs, type Mode, type Rule } from './delete-scope';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-ds]')) {
+    const prefix = root.dataset.prefix ?? 'ds';
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const tbody = root.querySelector<HTMLElement>('[data-rows]');
+    const summary = root.querySelector<HTMLElement>('[data-summary]');
+    const result = root.querySelector<HTMLElement>('.ds-result');
+    const ruleField = root.querySelector<HTMLElement>('[data-field="rule"]');
+
+    const read = (field: keyof Inputs) =>
+      root.querySelector<HTMLInputElement>(`input[name="${prefix}-${field}"]:checked`)?.value;
+
+    const cell = (tag: string, cls: string, text: string) => {
+      const el = document.createElement(tag);
+      el.className = cls;
+      el.textContent = text;
+      return el;
+    };
+
+    const update = () => {
+      const state: Inputs = {
+        asOf: Number(read('asOf') ?? 3) as Inputs['asOf'],
+        mode: (read('mode') ?? 'equality') as Mode,
+        rule: (read('rule') ?? 'spec') as Rule,
+      };
+      const res = resolve(state);
+
+      for (const li of root.querySelectorAll<HTMLElement>('[data-commit]')) {
+        li.dataset.active = Number(li.dataset.commit) <= state.asOf ? 'yes' : 'no';
+      }
+      for (const el of root.querySelectorAll<HTMLElement>('[data-only]')) {
+        el.hidden = el.dataset.only !== state.mode;
+      }
+      if (ruleField) ruleField.dataset.inactive = state.mode === 'dv' ? 'yes' : 'no';
+
+      if (tbody) {
+        tbody.replaceChildren(
+          ...res.rows.map((r, i) => {
+            const tr = document.createElement('tr');
+            tr.dataset.live = r.live ? 'yes' : 'no';
+            tr.style.setProperty('--i', String(i));
+            const th = document.createElement('th');
+            th.scope = 'row';
+            th.append(
+              cell('span', 'ds-row-file', `${r.file} (seq ${r.fileSeq}) #${r.pos}`),
+              cell('span', 'ds-row-val', `id ${r.id}, ${r.status}`),
+            );
+            const td = document.createElement('td');
+            td.append(cell('span', 'ds-verdict', r.live ? 'Live' : 'Deleted'), cell('span', 'ds-reason', r.reason));
+            tr.append(th, td);
+            return tr;
+          }),
+        );
+      }
+      if (summary) summary.textContent = res.summary;
+      if (result) result.dataset.correct = res.correct ? 'yes' : 'no';
+    };
+
+    for (const input of root.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
+      input.disabled = false;
+      input.addEventListener('change', update);
+    }
+    root.classList.add('is-live');
+    update();
+
+    // Rows appear one by one the first time the widget scrolls into view.
+    if (!reduce.matches && 'IntersectionObserver' in window) {
+      root.classList.add('is-armed');
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            root.classList.add('is-in');
+            io.disconnect();
+          }
+        },
+        { threshold: 0.2 },
+      );
+      io.observe(root);
+    }
+  }
+</script>
+
+<style>
+  .ds {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .ds code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .ds-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .ds-kicker,
+  .ds-result-label,
+  .ds-seq {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .ds-title {
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .ds-hint {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .ds-controls {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  .ds-field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .ds-field[data-inactive='yes'] {
+    opacity: 0.55;
+  }
+
+  .ds-field[data-inactive='yes']:focus-within {
+    opacity: 1;
+  }
+
+  .ds-label {
+    float: left;
+    padding: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  /* Segmented control built from real radio buttons */
+  .ds-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-self: start;
+    max-width: 100%;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .ds-seg label {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+  }
+
+  .ds-seg span {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .ds-seg label + label {
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .ds-seg input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .ds-seg span {
+    padding: 0.35rem 0.7rem;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 550;
+    line-height: 1.3;
+  }
+
+  .ds-seg input:checked + span {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  .ds-seg input:focus-visible + span {
+    outline: 2px solid var(--signal);
+    outline-offset: -4px;
+    box-shadow: inset 0 0 0 4px var(--bg);
+  }
+
+  .ds-seg input:disabled {
+    cursor: default;
+  }
+
+  .ds:not(.is-live) .ds-seg input:not(:checked) + span {
+    color: var(--text-muted);
+  }
+
+  .ds-commits {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-5) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .ds-commit {
+    min-width: 0;
+    padding: var(--space-3);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 8px;
+    background: var(--bg);
+    transition: opacity 0.2s ease;
+  }
+
+  .ds-commit[data-active='no'] {
+    border-left-color: var(--rule);
+    opacity: 0.5;
+  }
+
+  .ds-commit-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+    align-items: baseline;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .ds-files {
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .ds-file {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .ds-file-eq,
+  .ds-file-dv {
+    color: var(--text);
+  }
+
+  .ds-file-eq::before,
+  .ds-file-dv::before {
+    content: '';
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-right: 0.4rem;
+    border-radius: 2px;
+    background: var(--caution);
+    vertical-align: 0.05em;
+  }
+
+  .ds-file-dv::before {
+    background: var(--signal);
+  }
+
+  .ds-file[hidden] {
+    display: none;
+  }
+
+  .ds-table {
+    width: 100%;
+    margin-top: var(--space-5);
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: var(--text-sm);
+  }
+
+  .ds-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .ds-table thead th {
+    padding: 0 var(--space-2) var(--space-2);
+    border-bottom: 1px solid var(--rule-strong);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .ds-table :global(tbody th),
+  .ds-table :global(td) {
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    text-align: left;
+  }
+
+  .ds-table :global(tbody th) {
+    width: 42%;
+    font-weight: 400;
+  }
+
+  .ds-table :global(.ds-row-file),
+  .ds-table :global(.ds-row-val),
+  .ds-table :global(.ds-verdict),
+  .ds-table :global(.ds-reason) {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .ds-table :global(.ds-row-file) {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .ds-table :global(.ds-row-val) {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .ds-table :global(.ds-verdict) {
+    font-weight: 650;
+    color: var(--signal);
+  }
+
+  .ds-table :global(.ds-reason) {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .ds-table :global(tr[data-live='no'] .ds-verdict) {
+    color: var(--caution);
+  }
+
+  .ds-table :global(tr[data-live='no'] .ds-row-val) {
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+
+  .ds-result {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border-radius: 10px;
+    border: 1.5px solid var(--signal);
+    background: var(--bg);
+  }
+
+  .ds-result[data-correct='no'] {
+    border-color: var(--caution);
+  }
+
+  .ds-result[data-correct='no'] .ds-result-label {
+    color: var(--caution);
+  }
+
+  .ds-summary {
+    margin-top: var(--space-1);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  .ds-noscript,
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* First view: rows fade in one by one (only armed when JS runs and motion is allowed) */
+  .ds.is-armed:not(.is-in) .ds-table :global(tbody tr) {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  .ds.is-armed .ds-table :global(tbody tr) {
+    transition:
+      opacity 0.35s ease,
+      transform 0.35s ease;
+    transition-delay: calc(var(--i, 0) * 70ms);
+  }
+
+  @container (min-width: 620px) {
+    .ds-controls {
+      grid-template-columns: auto auto;
+      justify-content: start;
+      column-gap: var(--space-6);
+    }
+
+    .ds-field[data-field='rule'] {
+      grid-column: 1 / -1;
+    }
+
+    .ds-commits {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ds-field,
+    .ds-commit,
+    .ds.is-armed .ds-table :global(tbody tr) {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .ds-seg input:checked + span {
+      outline: 2px solid CanvasText;
+      outline-offset: -3px;
+    }
+  }
+</style>

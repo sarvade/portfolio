@@ -60,6 +60,7 @@ Blog posts can use the same components when written as `.mdx`, plus a few more:
 - `<StateTrace title="..." lanes={[{ name, scope, steps: [{ when, text, tone }], outcome }]} />`: stored state over time, one lane per scope, side by side when there is room. `text` may contain `<code>`.
 - `<Schema title="..." tables={[{ name, note, columns: [{ name, type, key, note, added }] }]} relation={{ label, cardinality }} />`: a data model, one card per table; `added` marks proposed columns.
 - `<RerunResolver />`: the interactive Airflow 3.3 rerun-version ladder used in the Airflow reruns post. Its rules live in `rerun-resolver.ts`.
+- `<DeleteScope caption="..." />`: an interactive Iceberg delete resolver used in the equality deletes post. Pick a commit, equality deletes or deletion vectors, and the spec's sequence-number rule or a wrong one, and every data row shows whether a delete hides it and why. Its scenario and rules live in `delete-scope.ts`.
 
 Animated components play once when scrolled into view, and render static with reduced motion or without JavaScript.
 

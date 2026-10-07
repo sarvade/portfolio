@@ -1,0 +1,260 @@
+---
+title: 'Every upsert has to find the old row. Iceberg 1.12 changes who pays for it'
+description: Streaming upserts into Iceberg leave equality deletes that every query pays for. How Iceberg 1.12 turns them into deletion vectors, and what that costs.
+pubDate: 2026-10-07T15:00:00Z
+draft: true
+tags:
+  - iceberg
+  - streaming
+  - cdc
+  - performance
+---
+
+import Callout from '../../components/viz/Callout.astro';
+import Flow from '../../components/viz/Flow.astro';
+import DeleteScope from '../../components/viz/DeleteScope.astro';
+import Compare from '../../components/viz/Compare.astro';
+import StateTrace from '../../components/viz/StateTrace.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+
+Picture a common pipeline. Change data from Postgres goes through Debezium and Kafka, and a Flink job upserts it into an Apache Iceberg table keyed by `order_id`. On the first day, queries are quick. Over the following weeks the same dashboard query gets slower, small delete files pile up, and eventually someone schedules a nightly compaction that rewrites most of the table to fix it. Nothing failed along the way. The table just got slower every hour between compactions.
+
+The cause isn't a bug. To replace a row, something has to find where the old version lives, and a streaming writer doesn't know that without reading the table. Iceberg lets it skip the lookup by writing an *equality delete*, a note that says "any older row with `order_id = 42` is gone". The lookup still has to happen, though. It just moves to every query that reads the table, until compaction rewrites the data.
+
+[Apache Iceberg 1.12.0](https://iceberg.apache.org/releases/), released on 29 September 2026, adds another option for Flink users: a maintenance task called `ConvertEqualityDeletes` that does the lookup once, in a stateful Flink job, and turns equality deletes into deletion vectors, which readers can apply cheaply. This post explains what that changes, how it works, what it costs, and when I'd use it. The facts come from the Iceberg spec, the 1.12 documentation and the 1.12.0 source, linked where they're used. Where I'm reasoning beyond them, I say so.
+
+## What shipped in 1.12
+
+The [release notes](https://iceberg.apache.org/releases/) list several Flink changes that go together:
+
+- A Flink maintenance task that converts equality deletes into deletion vectors (DVs), `ConvertEqualityDeletes`, built across several pull requests.
+- Integration with `IcebergSink`, so the conversion can run as a post-commit task of the job that writes the data, with no separate maintenance job.
+- Two related fixes: deleted rows reappearing after a failed conversion cycle, and unpartitioned equality deletes not being resolved across all partitions.
+
+It needs format version 3, the version that introduced deletion vectors, and the [Flink maintenance docs](https://iceberg.apache.org/docs/latest/flink-maintenance/#convertequalitydeletes) say the job validates that at startup. The same release also drops support for Flink 2.0 and adds Flink 2.2 and 2.3, so a job still on Flink 2.0 has to move before it can use the new task.
+
+## The lookup never goes away
+
+Here is the model I use for any upsert into a table that lives on object storage. Replacing a row is a delete plus an insert, and a delete needs to identify the old row. There are only a few places that work can happen:
+
+1. **The writer looks first.** It reads the table to find the old row's file and position, then writes a position delete. Spark's `MERGE`, `UPDATE` and `DELETE` work this way in merge-on-read mode: they scan the target, so they know positions, and on v3 tables they write deletion vectors. It is correct and cheap to read afterwards, but every write pays for a scan, which is why it fits batches better than a stream committing every minute.
+2. **Every reader looks.** The writer records only the key, as an equality delete, and each query matches keys against older rows. Writes are cheap, and reads get slower as deletes pile up.
+3. **Compaction looks, in bulk.** A rewrite reads data files with their deletes applied and writes clean files. It resets the read cost, but it rewrites data to do it, so it is expensive and runs rarely.
+4. **A dedicated job looks, incrementally.** New in 1.12 for Flink: a job keeps an index from key to row position, turns each equality delete into positions, and commits deletion vectors. No data is rewritten.
+
+<Callout label="The point">
+  The cost of finding the old row is roughly conserved. Equality deletes don't remove it; they defer it to readers. `ConvertEqualityDeletes` doesn't remove it either. It moves it into one stateful job that pays about once per change instead of once per query.
+</Callout>
+
+That conservation framing is my own, not the docs', but it is the most useful way I know to compare these options. Each one is a choice of who pays, when, and how often.
+
+## What a Flink upsert actually writes
+
+It helps to know exactly what the Flink writer produces, because the docs don't spell it out. In upsert mode, the [Flink writer](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/sink/BaseDeltaTaskWriter.java) handles every `INSERT` or `UPDATE_AFTER` row by first deleting the key, then writing the row. `UPDATE_BEFORE` rows are ignored in upsert mode, and a `DELETE` deletes the key.
+
+"Deleting the key" is decided in [`BaseTaskWriter`](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/core/src/main/java/org/apache/iceberg/io/BaseTaskWriter.java). Each writer, per subtask and per partition, remembers the keys it has written since its current files were opened, with their file and position. If the key is in that map, the writer knows exactly where the old row is and writes a position delete, which becomes a deletion vector on a v3 table. If it isn't, the writer writes the key to an equality delete file. It doesn't check whether the key exists in the table at all.
+
+Three consequences follow, and the third is easy to miss:
+
+- A key updated several times within one checkpoint costs one equality delete, not several, as long as all its changes reach the same writer subtask (hash distribution on the key does that). The repeats are resolved by position inside the writer.
+- A key updated once per checkpoint for an hour produces one equality delete per checkpoint.
+- **A brand-new key also produces an equality delete.** The writer can't tell an insert of a new order from an update of an old one, so it deletes blindly. The delete matches nothing, and readers still have to load it until it is compacted away or cleaned up.
+
+So in a CDC stream, equality delete volume tracks the number of distinct keys written or deleted per checkpoint, inserts included, not the number of real updates. That makes it easy to underestimate.
+
+## How a reader applies a delete
+
+The [scan planning rules in the spec](https://iceberg.apache.org/spec/#scan-planning) decide which deletes apply to which data files, using each file's *data sequence number*, which roughly means which commit its rows belong to:
+
+- An **equality delete** applies to data files in the same partition whose sequence number is **strictly less** than the delete's. An equality delete written with an unpartitioned spec applies to every partition.
+- A **deletion vector** applies to exactly one data file, the one it names, when that file's sequence number is **less than or equal to** the DV's.
+
+The "strictly less" is what makes upserts work. The upsert of `order_id = 7` writes a delete for key 7 and a new row for key 7 in the same commit, with the same sequence number. If the delete applied to rows from its own commit, it would delete the new row too. Deletion vectors can safely use "less than or equal", because they name exact positions, so there is nothing to confuse. Try it:
+
+<DeleteScope caption="Built from the scan planning rules in the Iceberg spec. Three commits, one partition. In the DV view, main holds the converted result of each commit, as in the staging-branch setup described below." />
+
+Two things to notice in the widget. In commit 2, the new order 9 produces an equality delete that matches nothing in older files, which is the blind delete from the previous section. After conversion, it simply disappears: the index has no position for key 9, so there is nothing to mark. And with the wrong rule, the table loses exactly the rows each commit just wrote, which is why the converter has to handle a delete and a re-insert of the same key in one commit carefully. I come back to that below.
+
+## Why the table gets slower
+
+A deletion vector is a bitmap of positions for one file, so a reader checks "is position 1,204 set?" while it reads that file. An equality delete is a set of keys, so a reader has to load the keys and check every row of every older data file in scope against them. In the Java reader, [`DeleteFilter`](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/data/src/main/java/org/apache/iceberg/data/DeleteFilter.java) loads the applicable equality deletes into an in-memory set and filters each row against it. Engines optimize this in different ways, but the shape of the work is the same: more outstanding keys means more memory and more comparisons on every scan, and a key column has to be read even when the query doesn't select it.
+
+Between compactions, outstanding equality deletes only grow. Here is an illustrative calculation, not a benchmark: assume 30 million keys written per day, evenly spread, with one commit per minute.
+
+<Compare
+  title="Equality delete keys a reader must apply, at the worst point of each cycle"
+  scale="log"
+  rows={[
+    { label: 'Compaction once a day', value: 30000000, display: '30,000,000 keys', tone: 'before' },
+    { label: 'Compaction every 6 hours', value: 7500000, display: '7,500,000 keys', tone: 'before' },
+    { label: 'Converted after every commit (the default trigger)', value: 20833, display: 'about 20,800 keys', tone: 'after' },
+  ]}
+  caption="Illustrative arithmetic: 30 million keys per day divided by the cleanups per day (1, 4 and 1,440), assuming a steady rate, one commit per minute, and conversion that keeps up. Real tables have peaks, and cleanups lag their schedule. Log scale."
+/>
+
+The absolute numbers are made up. The ratio is the point: the worst case scales with the time between cleanups, and conversion can run far more often than a rewrite of the data because it writes small bitmaps instead of data files. One condition hides in the third row: the converter processes one commit per trigger, so it only stays that low if it keeps pace with every commit. More on that under failure modes.
+
+## How ConvertEqualityDeletes works
+
+The converter is a Flink pipeline that runs one conversion cycle per trigger. The [docs](https://iceberg.apache.org/docs/latest/flink-maintenance/#convertequalitydeletes) describe its stages, and it takes the same maintenance lock as compaction and the other tasks, so they don't run at the same time on one table.
+
+<Flow
+  title="One conversion cycle"
+  steps={[
+    { label: 'Planner', note: 'picks the oldest unprocessed staging snapshot' },
+    { label: 'Reader', note: 'reads its equality deletes and new data rows' },
+    { label: 'PK index', note: 'key to row positions, kept in Flink state', tone: 'signal' },
+    { label: 'DV writer', note: 'merges new positions into each file’s DV' },
+    { label: 'Committer', note: 'one commit, tagged with a marker property' },
+  ]}
+  caption="Stages as named in the Iceberg 1.12 Flink maintenance docs."
+/>
+
+The heart of it is the PK index. Per the docs, it keeps a keyed index of row positions for the target branch in Flink state, and updates it incrementally: each cycle applies only the commits added since the last indexed snapshot, and the index is checkpointed with the job. A full rebuild happens on a cold start, after any commit to the target that didn't come from the converter (compaction included), when the target branch has diverged from the indexed snapshot, or when a cycle has to be planned again because its commit didn't land. The docs recommend RocksDB as the state backend because the index can outgrow the heap.
+
+The [index operator](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/maintenance/operator/EqualityConvertPKIndex.java) also handles the same-commit case from the widget. Rows that already exist on the target are indexed at once, so this cycle's deletes can find them. The staging commit's own new rows are held back and added only after its deletes have been resolved, using Flink event-time timers to order the two. Otherwise a delete and a re-insert of the same key would delete the re-insert.
+
+<StateTrace
+  title="Order 7, updated again in the commit being converted"
+  lanes={[
+    {
+      name: 'PK index',
+      scope: 'one key, in Flink state',
+      steps: [
+        { when: 'Before the cycle', text: '<code>7</code> points at F2, position 0: <code>paid</code>, from an earlier commit.' },
+        { when: 'Staging commit 3 arrives', text: 'It holds an equality delete for <code>7</code> and a new row <code>7 shipped</code> in F3. The new row is buffered, not indexed yet.' },
+        { when: 'Delete phase', text: 'The delete resolves against the index: F2, position 0. That position goes into F2’s deletion vector.', tone: 'signal' },
+        { when: 'After the delete', text: 'The buffered row joins the index: <code>7</code> now points at F3, position 0.', tone: 'signal' },
+      ],
+      outcome: 'Main gets F3 plus a DV on F2. One live row for order 7, and no equality delete for readers to apply.',
+    },
+    {
+      name: 'If the order were wrong',
+      scope: 'what the buffering prevents',
+      steps: [
+        { when: 'Staging commit 3 arrives', text: 'Suppose the new row were indexed immediately.', tone: 'caution' },
+        { when: 'Delete phase', text: 'The delete for <code>7</code> finds two positions: F2 #0 and F3 #0. Both get marked.', tone: 'caution' },
+      ],
+      outcome: 'Order 7 disappears from the table. The commit succeeds and nothing reports an error.',
+    },
+  ]}
+  caption="The ordering comes from the 1.12.0 index operator source. The second lane is a counterfactual, not a documented bug."
+/>
+
+### In place, or through a staging branch
+
+There are two ways to run it, and the difference is what readers of `main` see in between.
+
+**In place** is the default when you enable it on `IcebergSink`. The sink writes data and equality deletes to its branch as usual, and the converter then commits a second snapshot that adds DVs and removes the equality delete files it resolved. Readers always see correct data, and between the write and the conversion they pay the equality delete cost, for a much shorter time than with compaction alone.
+
+**Staging to target** writes to a separate branch and has the converter commit to `main`. The sink writes to `staging`; the converter adds the staging commit's data files and the matching DVs to `main` in one commit and leaves `staging` unchanged. Readers of `main` never see an equality delete. The price is freshness: data reaches `main` only after a cycle completes, and only one staging snapshot is converted per trigger, so if cycles are slower than commits, a backlog builds up on `staging`.
+
+```java
+// Staging-to-target: readers of main only ever see data files and DVs.
+// Assumes a v3 table with order_id as its key column.
+IcebergSink.forRowData(changes)
+    .table(table)
+    .tableLoader(tableLoader)
+    .upsert(true)
+    .equalityFieldColumns(List.of("order_id"))
+    .toBranch("staging")
+    .convertEqualityDeletes(Map.of(
+        "flink-maintenance.convert-equality-deletes.target-branch", "main"))
+    .append();
+```
+
+The option names come from the [1.12 configuration reference](https://iceberg.apache.org/docs/latest/flink-maintenance/) and the [`IcebergSink` builder](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/sink/IcebergSink.java). By default a cycle is triggered after every commit (`flink-maintenance.convert-equality-deletes.schedule.commit-count` is 1).
+
+## Failure modes
+
+These come from the documented constraints and the release notes. The consequences are my reading of them.
+
+**Another writer on the target branch.** The converter checks for conflicting commits on the target when it commits, after it has already read data, resolved keys and written DV files. The docs warn that a writer committing to the target faster than a cycle completes can make cycles fail over and over and never catch up, a livelock, with the abandoned DV files left for orphan cleanup. A nightly batch job that also writes to `main` is fine; a second streaming job is not. Compaction and snapshot expiry should run through the same maintenance lock, not as a separate Spark job on a timer.
+
+**Full index rebuilds.** Every commit to the target that the converter didn't make, including compaction under the shared lock, makes the next cycle rebuild the index from the target head, according to the [planner source](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/maintenance/operator/EqualityConvertPlanner.java). On a large table that means reading every live key again. Budget for that after each compaction or batch write, and don't compact more often than you need to.
+
+**Losing the marker.** The committer keeps no state. After a restart, the planner finds where it was by walking the target branch for a snapshot carrying the `equality-convert-staging-snapshot` property. If that snapshot is gone, because `main` was rolled back or replaced, or because snapshot expiry removed it, the planner fails and someone has to step in. Snapshot retention on `main` and the restart procedure belong in the same runbook. This is the same idea as making a rerun safe, which I wrote about in [Make reruns boring](../make-reruns-boring/): the job is only as restartable as the record it restarts from.
+
+**Changing the key.** The equality columns are stored in operator state. Restoring from a savepoint with different columns fails on purpose; the documented path is a clean restart, which means rebuilding the index from the table.
+
+**State that grows with the table.** The index size scales with the number of live rows, not with the change rate. As an illustration, a table with 2 billion live orders and 50,000 updates a minute needs an index over 2 billion keys, not 50,000. Before relying on it, run the converter against a copy of the real table and measure the checkpoint size it produces, then size state storage and TaskManager memory from that rather than from a guess.
+
+**A backlog you don't see.** The converter handles the oldest unconverted commit, one per trigger, and by default maintenance tasks run at most once every 60 seconds (`flink-maintenance.rate-limit-seconds`). With one commit a minute there is no headroom: every slow cycle adds to a backlog that doesn't shrink. In place, the backlog shows up as equality deletes readers still pay for. In staging mode, unconverted data is on `staging` and not on `main`, so queries on `main` are correct but stale, and nothing fails. Commit less often than conversion can run, and alert on the gap between the newest written snapshot and the newest converted one. (This is my reading of the documented defaults, not something I've measured.)
+
+**Rules the planner enforces.** The staging branch can't hold v2 position delete files, and it can't have data files removed, so compaction must run on the target. The equality columns configured for the converter must exactly match the ones the writer used, and partition source columns must be among them. Each mismatch fails the cycle rather than producing wrong data, which is the right behavior, but it fails at runtime, not at deploy time.
+
+**New code.** The task is new in this release, and the release notes include a fix for deleted rows reappearing after a failed conversion cycle. That bug is fixed in 1.12.0, but it shows where the subtle cases are. My opinion: test failover on purpose before trusting it, by killing the job between a cycle's DV write and its commit, then comparing a full scan of the table against the source.
+
+## Choosing where to pay
+
+This is the decision table I'd start from. It is my judgment, built on the mechanics above, not a benchmark.
+
+<Matrix
+  title="Who should find the old row?"
+  columns={['Setup', 'Write cost', 'Read cost', 'Freshness on main', 'Fits when']}
+  rows={[
+    ['Equality deletes, compacted on a schedule', 'Low', 'Grows until compaction', 'Each commit', 'Updates are rare, or reads are rare'],
+    ['Converted in place', 'Low, plus a stateful job', 'Small, between commit and conversion', 'Each commit', 'You want fast reads and can run v3 with one writer'],
+    ['Staging to target', 'Low, plus a stateful job', 'Small', 'Each converted cycle', 'Readers can’t pay any equality delete cost, and minutes of delay are fine'],
+    ['Batch MERGE every few minutes', 'A scan per batch', 'Small', 'Each batch', 'The table is small enough to scan on every batch'],
+    ['Copy-on-write', 'Rewrites touched files', 'None', 'Each batch', 'Updates are rare and reads dominate'],
+  ]}
+  chips={{ Low: 'signal', None: 'signal', Small: 'signal' }}
+  caption="Rows are alternatives. Read cost means work spent applying deletes during scans, not the whole query."
+/>
+
+## When not to use it
+
+**When any engine reading the table can't read v3.** The converter needs a v3 table, and every engine that reads the table must support v3 deletion vectors. Check each one, including the BI tool's connector, before upgrading the format.
+
+**When you need row lineage.** The docs say the converter doesn't support row lineage yet, and the spec notes that [row lineage doesn't track rows updated through equality deletes](https://iceberg.apache.org/spec/#row-lineage) anyway.
+
+**When the table is mostly appends.** If few keys are ever updated, the blind deletes from new keys are the main source of equality deletes. Consider whether the stream needs upsert mode at all, or whether a separate path for true inserts makes sense, before adding a stateful job.
+
+**When updates are rare and reads are rare.** An index over every live row costs memory and checkpoint storage all the time. If a nightly compaction already keeps queries fast enough, the converter is cost without a benefit.
+
+**When several streams write the same table.** The design assumes one writer to the staging branch and nothing else continuously writing to the target. A fan-in of several CDC jobs into one table is the livelock case.
+
+## What to watch
+
+The snapshot summary already counts what matters. In Spark SQL, against the [metadata tables](https://iceberg.apache.org/docs/latest/spark-queries/#inspecting-tables):
+
+```sql
+-- Equality deletes outstanding on main over time. The snapshots table
+-- includes every branch, so keep only main's ancestry via history.
+select s.committed_at,
+       s.operation,
+       s.summary['total-equality-deletes']             as eq_delete_rows,
+       s.summary['total-delete-files']                 as delete_files,
+       s.summary['equality-convert-staging-snapshot']  as converted_from
+from   prod.sales.orders.history   h
+join   prod.sales.orders.snapshots s on s.snapshot_id = h.snapshot_id
+where  h.is_current_ancestor
+order  by s.committed_at desc
+limit  50;
+```
+
+`total-equality-deletes` and `total-delete-files` are defined in the [spec's snapshot summary](https://iceberg.apache.org/spec/#optional-snapshot-summary-fields); `converted_from` is the converter's marker, set only on its own commits. In place, `eq_delete_rows` should fall back toward zero after each conversion commit. Treat it as an upper bound on what readers pay, not an exact measure: an equality delete file stays live after compaction until something removes it, even when no older data is left for it to apply to. Spark's `rewrite_data_files` has a `remove-dangling-deletes` option for that, off by default. On the Flink side, the index operator reports `resolvedDeleteNum` and `indexedKeyNum`. I'd alert on three things: equality delete rows on `main` that don't go back down, conversion cycles that fail more than once in a row, and in staging mode, how far `main` is behind `staging`.
+
+## What I'd do with this
+
+1. Find which tables receive streaming upserts and plot `total-equality-deletes` on `main` per table for a week. As an upper bound, that shows where readers are paying today.
+2. For each one, decide who should pay using the table above, before deciding on a tool.
+3. If the answer is the converter, upgrade to 1.12.0 or later, move the table to v3 only after checking every reader, and start in place. Move to staging-to-target only if readers can't tolerate any equality delete cost.
+4. Run compaction and snapshot expiry through the same Flink maintenance lock, and make sure retention keeps the converter's marker reachable.
+5. Kill the job mid-cycle once in a test environment and reconcile the table against its source.
+
+The short version: an upsert into a table on object storage always has to find the old row. Equality deletes let the writer skip that step and hand it to every reader. Iceberg 1.12 gives Flink users a way to do it once, in one place, at the cost of a stateful job that has to be sized, watched and restarted with care. For a busy CDC table that is read often, that's a good trade. For a quiet one, compaction is still simpler.
+
+## References
+
+- [Apache Iceberg releases: 1.12.0 release notes](https://iceberg.apache.org/releases/)
+- [Iceberg table spec: scan planning, delete files and deletion vectors](https://iceberg.apache.org/spec/#scan-planning)
+- [Iceberg docs (latest, 1.12 at time of writing): Flink maintenance, ConvertEqualityDeletes](https://iceberg.apache.org/docs/latest/flink-maintenance/#convertequalitydeletes)
+- [Iceberg docs (latest, 1.12 at time of writing): Flink writes and upsert mode](https://iceberg.apache.org/docs/latest/flink-writes/#upsert)
+- [Iceberg docs (latest, 1.12 at time of writing): Spark metadata tables](https://iceberg.apache.org/docs/latest/spark-queries/#inspecting-tables)
+- [Iceberg 1.12.0 source: BaseTaskWriter, how deletes are written](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/core/src/main/java/org/apache/iceberg/io/BaseTaskWriter.java)
+- [Iceberg 1.12.0 source: Flink BaseDeltaTaskWriter, upsert handling](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/sink/BaseDeltaTaskWriter.java)
+- [Iceberg 1.12.0 source: DeleteFilter, how readers apply deletes](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/data/src/main/java/org/apache/iceberg/data/DeleteFilter.java)
+- [Iceberg 1.12.0 source: EqualityConvertPKIndex](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/maintenance/operator/EqualityConvertPKIndex.java)
+- [Iceberg 1.12.0 source: IcebergSink builder](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/flink/v2.3/flink/src/main/java/org/apache/iceberg/flink/sink/IcebergSink.java)
