@@ -1,0 +1,251 @@
+---
+title: 'Broadcast or shuffle? How Spark picks a join, in 8 minutes'
+description: Why Spark sort-merge joined a 20,000-row table it could have broadcast, what AQE fixes at runtime, and how to explain join strategies in an interview.
+pubDate: 2026-10-15T15:00:00Z
+draft: true
+tags:
+  - spark
+  - performance
+  - interviews
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+import Compare from '../../components/viz/Compare.astro';
+import Callout from '../../components/viz/Callout.astro';
+
+Here is a question I like, because it sounds easy and isn't:
+
+> You join 20 million orders to the 20,000 customers in the gold tier. The gold rows add up to a couple of megabytes. Why did Spark shuffle both sides anyway?
+
+The answer isn't "Spark is dumb". Spark made a reasonable decision with the wrong number. Once you see which number, you understand most of what matters about Spark joins.
+
+In this post: the three join strategies in plain words, how Spark picks one, the size estimate that fools it, what Adaptive Query Execution (AQE) rescues and what it can't, and how to say all of this in an interview. Every measured number below comes from a small experiment I ran on PySpark 4.2.0 (setup at the end). Defaults and version facts come from the Spark 4.2.0 docs and source.
+
+## The running example
+
+Two tables, both Parquet:
+
+- `orders`: 20 million rows, `order_id`, `customer_id`, `amount`. 327 MB on disk.
+- `customers`: 2 million rows, `customer_id`, `tier`, `country`, `email_hash`. 135 MB on disk. 1% of them are `gold`.
+
+The query everyone writes:
+
+```python
+gold = customers.filter(F.col("tier") == "gold")      # 20,000 rows
+result = orders.join(gold, "customer_id")
+```
+
+Keep this query in mind. We'll run it three different ways.
+
+## Three ways to join, in plain words
+
+Every distributed join has the same problem. Rows with the same `customer_id` live on different machines, and they need to meet.
+
+**Sort-merge join (SMJ).** Move the data so matching keys end up in the same partition. Spark hashes `customer_id` on both sides and sends every row to its partition. That move is the **shuffle**. Then it sorts each partition and walks the two sides together, like merging two sorted lists.
+
+<Flow
+  title="Sort-merge join: both sides travel"
+  steps={[
+    { label: 'Scan both tables' },
+    { label: 'Shuffle both sides', note: 'hash customer_id into 200 partitions', tone: 'caution' },
+    { label: 'Sort each partition', tone: 'caution' },
+    { label: 'Merge matching keys', note: 'works for any size' },
+  ]}
+/>
+
+**Broadcast hash join (BHJ).** If one side is small, don't move the big side at all. Collect the small side on the driver, build a hash table, and send a copy to every executor. Each task scans its slice of `orders` and looks up each row in the hash table. No shuffle, no sort.
+
+<Flow
+  title="Broadcast hash join: only the small side travels"
+  steps={[
+    { label: 'Collect the small side', note: 'on the driver' },
+    { label: 'Broadcast it', note: 'one copy per executor', tone: 'signal' },
+    { label: 'Scan the big side in place', tone: 'signal' },
+    { label: 'Hash lookup per row', note: 'no shuffle, no sort' },
+  ]}
+/>
+
+**Shuffle hash join (SHJ).** The middle ground. Shuffle both sides like SMJ, but instead of sorting, build a hash table from the smaller side inside each partition. It skips the sort but needs each partition's build side to fit in memory.
+
+That's the whole menu for equi-joins. (There are two more, cartesian product and broadcast nested loop join. They are mostly what you get when there's no equality condition to join on, and you want to avoid both on big tables.)
+
+## How Spark picks
+
+Spark's planner checks a fixed list, in order. This comes straight from the comments on the `JoinSelection` strategy in the [Spark 4.2.0 source](https://github.com/apache/spark/blob/v4.2.0/sql/core/src/main/scala/org/apache/spark/sql/execution/SparkStrategies.scala#L219-L237):
+
+<Matrix
+  title="Spark's join choice for equi-joins, with no hints"
+  columns={['Step', 'Picks', 'When']}
+  rows={[
+    ['1', 'Broadcast hash join', 'One side is under the broadcast threshold (10 MB by default) and the join type allows broadcasting that side'],
+    ['2', 'Shuffle hash join', 'One side is small enough for a local hash map, much smaller than the other, and you have turned off the internal preference for sort-merge'],
+    ['3', 'Sort-merge join', 'The join keys are sortable'],
+    ['4', 'Cartesian product', 'Inner-like join'],
+    ['5', 'Broadcast nested loop join', 'Last resort. The source comment says it may OOM.'],
+  ]}
+  caption="From the JoinSelection comments in Spark 4.2.0. The internal flag preferSortMergeJoin defaults to true, so step 2 is off at planning time unless you change it."
+/>
+
+Hints jump the queue. If you write `broadcast(df)` or `/*+ BROADCAST(t) */`, Spark checks hints first, in the order BROADCAST, MERGE, SHUFFLE_HASH, SHUFFLE_REPLICATE_NL (the same JoinSelection comment; the [performance tuning guide](https://spark.apache.org/docs/latest/sql-performance-tuning.html) gives the same priority when the two sides carry different hints). A hint is a request, not an order: if the join type doesn't support it, Spark logs a warning and plans without it.
+
+So for our query, step 1 asks one question: is `gold` under 10 MB?
+
+## The number that fools Spark
+
+It is, in reality. 20,000 rows, a couple of megabytes.
+
+But Spark doesn't know that at planning time. It hasn't read the data yet. It asks the data source for a size estimate, and for plain Parquet files without table statistics, that estimate comes from the file sizes. Here is what Spark reported in my run:
+
+```python
+>>> customers._jdf.queryExecution().optimizedPlan().stats().sizeInBytes()
+140264754
+>>> gold._jdf.queryExecution().optimizedPlan().stats().sizeInBytes()
+140264754
+```
+
+Same number. (`EXPLAIN COST` shows it as 133.8 MiB.) The filter that throws away 99% of the rows didn't change the estimate at all. Spark thinks `gold` is 140 MB, about 13 times the threshold, so it plans a sort-merge join and shuffles all 20 million orders.
+
+That's the answer to the opening question. Spark didn't ignore the small table. It never knew the table was small.
+
+Can statistics fix it? Partly. I saved `customers` as a table, ran `ANALYZE TABLE customers_t COMPUTE STATISTICS FOR COLUMNS tier, customer_id`, and checked the estimate for the filtered table again:
+
+- Column stats, `spark.sql.cbo.enabled` left at its default of false: still 140 MB.
+- Column stats with CBO on: 76 MB.
+
+Better, but still about 7 times the threshold, so the plan was still a sort-merge join. The column has 2 distinct values, and without a histogram the estimate came out at half the rows (1,000,000), even though only 1% of rows are gold. Statistics help Spark guess. They don't make it psychic.
+
+## What AQE fixes, and what it can't
+
+Since Spark 3.2, Adaptive Query Execution is on by default. AQE re-plans the query while it runs, using real statistics from the stages that already finished.
+
+For our query, that means Spark starts with the sort-merge plan, runs the shuffle stages, and then sees the real size of `gold`: 2.4 MiB. That's under the threshold, so AQE switches the join to a broadcast hash join. Here is the actual plan from the run, trimmed and simplified:
+
+```text
+AdaptiveSparkPlan
++- == Final Plan ==
+   BroadcastHashJoin Inner BuildRight
+   :- AQEShuffleRead local
+   :  +- ShuffleQueryStage  (sizeInBytes=610.4 MiB, rowCount=2.00E+7)   <- orders, already shuffled
+   +- BroadcastQueryStage
+      +- ShuffleQueryStage  (sizeInBytes=2.4 MiB, rowCount=2.00E+4)    <- gold
++- == Initial Plan ==
+   SortMergeJoin Inner
+   :- Sort <- Exchange <- orders
+   +- Sort <- Exchange <- gold
+```
+
+Read the first `ShuffleQueryStage` line again. By the time AQE learned the truth, the orders side had already been shuffled. AQE skipped the sort and read the shuffle files locally, but the shuffle write had already happened: 376 MB on disk in my run. (The 610 MiB in the plan is the uncompressed row size Spark counted while shuffling; the 376 MB is the compressed bytes actually written.)
+
+One more number from the same plan: Spark sized the hash table built from those 2.4 MiB of gold rows at 65 MiB (`BroadcastQueryStage`, sizeInBytes=65.0 MiB). The threshold is checked against the row size, but every executor holds the hash table.
+
+The [Spark docs](https://spark.apache.org/docs/latest/sql-performance-tuning.html) say the same thing more politely: this conversion "is not as efficient as planning a broadcast hash join in the first place".
+
+<Callout label="The one sentence to remember">
+AQE can change the join after the shuffle. It can't give you the shuffle back. If you know a side is small and Spark doesn't, tell it before the query starts.
+</Callout>
+
+## The experiment
+
+The gold query three ways, plus two runs against the full customers table for comparison. Each ran 3 times; the numbers are medians. The sink is Spark's `noop` writer, so the time is the join, not file writing.
+
+<Compare
+  title="orders joined to gold customers, median of 3 runs"
+  rows={[
+    { label: 'Sort-merge join, AQE off', value: 10.73, display: '10.7 s', tone: 'before' },
+    { label: 'AQE on (default): starts SMJ, switches to broadcast', value: 7.86, display: '7.9 s', tone: 'before' },
+    { label: 'broadcast(gold) hint', value: 1.84, display: '1.8 s', tone: 'after' },
+  ]}
+  caption="Measured: PySpark 4.2.0, local[2] on a 2 vCPU, 7 GB machine, 3 GB driver. One machine, so there is no network cost; the absolute numbers will differ on a cluster. A second set of runs gave 10.7 s, 7.5 s and 2.2 s."
+/>
+
+<Matrix
+  title="What each run actually did"
+  columns={['Query', 'Final join', 'Shuffle write', 'Median']}
+  rows={[
+    ['orders x gold, AQE off', 'Sort-merge', '376 MB', '10.7 s'],
+    ['orders x gold, AQE on', 'Broadcast (switched at runtime)', '376 MB', '7.9 s'],
+    ['orders x broadcast(gold)', 'Broadcast (planned)', '0 MB', '1.8 s'],
+    ['orders x all customers, default', 'Sort-merge', '527 MB', '13.6 s'],
+    ['orders x broadcast(all customers)', 'Broadcast (planned)', '0 MB', '9.6 s'],
+  ]}
+  caption="Measured in the same environment. Shuffle write is the sum of shuffleWriteBytes for the query's stages, from Spark's REST API."
+/>
+
+Three things I took from this:
+
+1. AQE on beat AQE off by roughly 25 to 30% across my runs, with the exact same shuffle volume. Most likely that's the skipped sort and the local shuffle reads; I didn't profile it.
+2. The hint was 3 to 4 times faster than AQE, because it never shuffled at all.
+3. Broadcasting all 2 million customers (135 MB) was also faster here. Don't read too much into that one. On one machine, "send a copy to every executor" costs almost nothing. On a 100-executor cluster it means 100 copies, and the whole table has to fit in driver memory first.
+
+## Where broadcast joins bite
+
+**The side you can broadcast depends on the join type.** In a left outer join, every row on the left must come out, matched or not, so Spark can only broadcast the right side. The [source](https://github.com/apache/spark/blob/v4.2.0/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/joins.scala#L377-L389) is short: left can be broadcast for inner and right outer joins; right can be broadcast for inner, left outer, left semi and left anti joins (plus a couple of internal join types used for subqueries). A full outer join can't use a broadcast hash join at all. I tried hinting the left side of a left outer join, and Spark planned a sort-merge join with this warning:
+
+```text
+WARN HintErrorLogger: Hint (strategy=broadcast) is not supported in the query: build left for left outer join.
+```
+
+It's a WARN line in the logs, not an error. Easy to miss.
+
+**There's a hard ceiling.** Spark refuses to broadcast a table of 8 GiB or more. The limit used to be hard-coded; since Spark 4.1 you can change it with `spark.sql.maxBroadcastTableSize` ([SQLConf, 4.2.0](https://github.com/apache/spark/blob/v4.2.0/sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala#L1977-L1981)). There's also a row limit of a few hundred million rows. Long before either, you'll hit driver memory, executor memory, or `spark.sql.broadcastTimeout` (300 seconds by default).
+
+**Raising the threshold is a blunt tool.** Setting `spark.sql.autoBroadcastJoinThreshold` to 1 GB "to make joins faster" applies to every join in the job, including the ones where the estimate is wrong in the other direction. A hint on the one join you understand is safer.
+
+## In the interview
+
+**How it's asked.** "What join strategies does Spark have?" or "A join is slow. One table is small. What do you check?" It can also come as a Spark UI screenshot with two big Exchange nodes.
+
+**What a strong answer covers:**
+
+- Name the three strategies and what each one moves: SMJ shuffles and sorts both sides, BHJ ships the small side to every executor, SHJ shuffles both but skips the sort.
+- Explain the decision: broadcast if a side is under `autoBroadcastJoinThreshold` (10 MB) and the join type allows it, otherwise sort-merge by default.
+- Say where the size comes from: a planning-time estimate, which can be badly wrong after a filter. Mention `EXPLAIN COST` to see it, and that `ANALYZE TABLE` plus `spark.sql.cbo.enabled` can improve it, but not always enough.
+- Mention AQE: it can switch to broadcast at runtime, but only after the shuffle has run.
+- Close with the fix: a `broadcast()` hint when you know the side is small, and how you'd confirm it in the plan (`BroadcastHashJoin`, no `Exchange` on the big side).
+
+**Likely follow-ups:**
+
+- "Why can't you broadcast the left side of a left join?" Because unmatched left rows must still be output, and a task holding a copy of the left side only sees its own slice of the right side, so it can't know whether another task matched a given row. A broadcast hash join has no step that combines that information across tasks.
+- "When would you not broadcast?" When the small side isn't small on every run, when it barely fits in driver memory, or when there are many executors and the broadcast cost adds up.
+- "What about skew?" Different problem: one key with far more rows than others. AQE has separate skew-join handling. A good topic for another post.
+
+## Cheat sheet
+
+<Matrix
+  title="Spark joins on one screen"
+  columns={['If you see', 'It means', 'Try']}
+  rows={[
+    ['SortMergeJoin with an Exchange on both sides', 'Both sides shuffled and sorted', 'Check if one side is really small'],
+    ['AdaptiveSparkPlan, Initial: SortMergeJoin, Final: BroadcastHashJoin', 'AQE rescued it after the shuffle', 'Add a broadcast() hint to skip the shuffle'],
+    ['Huge sizeInBytes on a filtered table', 'Estimate from file size, filter ignored', 'Hint it. Column stats plus CBO only narrow the guess'],
+    ['WARN HintErrorLogger ... not supported', 'Your hint was ignored', 'Check which side the join type can broadcast'],
+    ['Broadcast timeout or driver OOM', 'The "small" side isn\'t', 'Drop the hint, let it sort-merge'],
+  ]}
+/>
+
+And the three commands I'd keep handy:
+
+```python
+df.explain("formatted")                  # the plan, with join strategy and Exchange nodes
+spark.conf.get("spark.sql.autoBroadcastJoinThreshold")   # 10485760b by default
+orders.join(F.broadcast(gold), "customer_id")            # ask for a broadcast
+```
+
+## How to reproduce
+
+PySpark 4.2.0 from pip, OpenJDK 21, `local[2]`, `spark.driver.memory=3g`, default `spark.sql.shuffle.partitions` (200).
+
+- `orders`: `spark.range(20_000_000)` with `customer_id = abs(hash(id) % 2_000_000)` and a random `amount`, written to Parquet.
+- `customers`: `spark.range(2_000_000)` with `tier = 'gold'` when `id % 100 == 0`, a `country` string and a SHA-256 `email_hash`, written to Parquet.
+- Each query was run with `.write.format("noop").mode("overwrite").save()`, 3 times, timing each call. Shuffle bytes and the final plan came from the Spark UI REST API (`/api/v1/applications/<id>/stages` and `/sql`).
+- For AQE off: `spark.conf.set("spark.sql.adaptive.enabled", "false")`.
+
+The first run of each set includes JVM warm-up, which is why I report the median. This is one machine and one data shape, so treat the ratios as a demonstration, not a benchmark.
+
+## References
+
+- [Spark SQL performance tuning: join strategy hints and adaptive query execution (4.2.0)](https://spark.apache.org/docs/latest/sql-performance-tuning.html)
+- [Spark 4.2.0 source: JoinSelection order](https://github.com/apache/spark/blob/v4.2.0/sql/core/src/main/scala/org/apache/spark/sql/execution/SparkStrategies.scala#L219-L237)
+- [Spark 4.2.0 source: which side a join type can broadcast](https://github.com/apache/spark/blob/v4.2.0/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/joins.scala#L377-L389)
+- [Spark 4.2.0 source: SQLConf defaults for broadcast thresholds and limits](https://github.com/apache/spark/blob/v4.2.0/sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala)
