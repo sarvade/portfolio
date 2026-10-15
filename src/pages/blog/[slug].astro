@@ -2,57 +2,118 @@
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import { render } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import Toc from '../../components/blog/Toc.astro';
 import { getPosts, type PostEntry } from '../../lib/content';
 import { formatDate, isoDate, readingTime } from '../../lib/format';
 import { url } from '../../lib/url';
 
 export async function getStaticPaths() {
   const posts = await getPosts();
-  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post, posts } }));
 }
 
 interface Props {
   post: PostEntry;
+  posts: PostEntry[];
 }
 
-const { post } = Astro.props;
-const { Content } = await render(post);
+const { post, posts } = Astro.props;
+const { Content, headings } = await render(post);
 const { title, description, pubDate, updatedDate, tags } = post.data;
+
+// Related posts: most shared tags first, then newest. Up to 3.
+const related = posts
+  .filter((p) => p.id !== post.id)
+  .map((p) => ({ p, shared: p.data.tags.filter((t) => tags.includes(t)).length }))
+  .sort((a, b) => b.shared - a.shared || b.p.data.pubDate.valueOf() - a.p.data.pubDate.valueOf())
+  .slice(0, 3)
+  .map(({ p }) => p);
 ---
 
 <BaseLayout title={title} description={description} type="article" publishedTime={pubDate.toISOString()}>
   <article class="container post">
-    <a class="back" href={url('blog/')}>All posts</a>
+    <div class="post-layout">
+      <div class="post-main">
+        <a class="back" href={url('blog/')}>All posts</a>
 
-    <header class="post-head">
-      <h1>{title}</h1>
-      <p class="post-meta">
-        <time datetime={isoDate(pubDate)}>{formatDate(pubDate)}</time>
-        <span>{readingTime(post.body)}</span>
-        {
-          updatedDate && (
-            <span>
-              Updated <time datetime={isoDate(updatedDate)}>{formatDate(updatedDate)}</time>
-            </span>
-          )
-        }
-        {post.data.draft && <span class="draft">Draft, only visible in dev</span>}
-      </p>
-    </header>
+        <header class="post-head">
+          <h1>{title}</h1>
+          <p class="post-lede">{description}</p>
+          <p class="post-meta">
+            <time datetime={isoDate(pubDate)}>{formatDate(pubDate)}</time>
+            <span>{readingTime(post.body)}</span>
+            {
+              updatedDate && (
+                <span>
+                  Updated <time datetime={isoDate(updatedDate)}>{formatDate(updatedDate)}</time>
+                </span>
+              )
+            }
+            {post.data.draft && <span class="draft">Draft, only visible in dev</span>}
+          </p>
+        </header>
 
-    <div class="prose">
-      <Content />
+        <div class="only-narrow">
+          <Toc headings={headings} variant="inline" />
+        </div>
+
+        <div class="prose post-body">
+          <Content />
+        </div>
+
+        <footer class="post-foot">
+          {
+            tags.length > 0 && (
+              <ul class="tag-list" aria-label="Tags">
+                {tags.map((tag) => (
+                  <li>{tag}</li>
+                ))}
+              </ul>
+            )
+          }
+          {
+            related.length > 0 && (
+              <section class="related" aria-labelledby="related-heading">
+                <h2 id="related-heading" class="related-heading">Keep reading</h2>
+                <ul class="related-grid">
+                  {related.map((p) => (
+                    <li>
+                      <a href={url(`blog/${p.id}/`)}>{p.data.title}</a>
+                      <span>{readingTime(p.body)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
+          }
+        </footer>
+      </div>
+
+      <aside class="post-rail only-wide" aria-label="About this post">
+        <div class="rail-inner">
+          <Toc headings={headings} variant="rail" />
+          <div class="rail-block">
+            <p class="rail-label">Reading time</p>
+            <p>{readingTime(post.body)}</p>
+          </div>
+          {
+            related.length > 0 && (
+              <div class="rail-block">
+                <p class="rail-label">Related</p>
+                <ul class="rail-related">
+                  {related.map((p) => (
+                    <li>
+                      <a href={url(`blog/${p.id}/`)}>{p.data.title}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          }
+          <a class="rail-top" href="#main">Back to top</a>
+        </div>
+      </aside>
     </div>
-
-    {
-      tags.length > 0 && (
-        <ul class="tag-list post-tags" aria-label="Tags">
-          {tags.map((tag) => (
-            <li>{tag}</li>
-          ))}
-        </ul>
-      )
-    }
   </article>
 </BaseLayout>
 
@@ -62,15 +123,67 @@ const { title, description, pubDate, updatedDate, tags } = post.data;
     padding-bottom: var(--space-9);
   }
 
+  /*
+    One centered column on phones and tablets. From 1100px the article sits next to a
+    sticky rail (contents, reading time, related posts), and the pair is centered, so
+    the page uses the screen without stretching lines of prose.
+  */
+  .post-layout {
+    max-width: 46rem;
+    margin-inline: auto;
+  }
+
+  .only-wide {
+    display: none;
+  }
+
+  @media (min-width: 1100px) {
+    .post-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 46rem) 16rem;
+      justify-content: center;
+      column-gap: clamp(2.5rem, 4vw, 4.5rem);
+      max-width: none;
+    }
+
+    .only-wide {
+      display: block;
+    }
+
+    .only-narrow {
+      display: none;
+    }
+  }
+
+  .post-main {
+    min-width: 0;
+  }
+
+  /* The article column is the measure here, so prose fills it and wide figures span it. */
+  .post-body {
+    max-width: none;
+  }
+
+  /* Long inline code (config keys, method chains) wraps instead of widening the page on phones. */
+  .post-body :global(:not(pre) > code) {
+    overflow-wrap: anywhere;
+  }
+
   .back {
     font-size: var(--text-sm);
     font-weight: 600;
   }
 
   .post-head {
-    max-width: var(--measure);
     margin-top: var(--space-6);
     margin-bottom: var(--space-6);
+  }
+
+  .post-lede {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-md);
+    line-height: 1.45;
   }
 
   .post-meta {
@@ -78,6 +191,8 @@ const { title, description, pubDate, updatedDate, tags } = post.data;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-5);
     margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--rule);
     color: var(--text-muted);
     font-size: var(--text-sm);
   }
@@ -86,7 +201,108 @@ const { title, description, pubDate, updatedDate, tags } = post.data;
     color: var(--caution);
   }
 
-  .post-tags {
-    margin-top: var(--space-7);
+  .only-narrow {
+    margin-bottom: var(--space-6);
+  }
+
+  .post-foot {
+    margin-top: var(--space-8);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--rule);
+  }
+
+  .related {
+    margin-top: var(--space-6);
+  }
+
+  .related-heading {
+    font-size: var(--text-md);
+    font-stretch: 106%;
+  }
+
+  .related-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-4);
+    padding: 0;
+    list-style: none;
+  }
+
+  .related-grid li {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-s);
+    background: var(--surface);
+  }
+
+  .related-grid a {
+    color: var(--text);
+    font-weight: 600;
+    line-height: 1.3;
+    text-decoration: none;
+  }
+
+  .related-grid a:hover {
+    text-decoration: underline;
+  }
+
+  .related-grid span {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Rail */
+  .post-rail {
+    min-width: 0;
+  }
+
+  .rail-inner {
+    position: sticky;
+    top: calc(var(--header-h) + var(--space-6));
+    display: grid;
+    gap: var(--space-6);
+    max-height: calc(100vh - var(--header-h) - var(--space-8));
+    overflow-y: auto;
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-4);
+    font-size: var(--text-sm);
+  }
+
+  .rail-label {
+    margin-bottom: var(--space-2);
+    color: var(--text);
+    font-weight: 650;
+    letter-spacing: 0.02em;
+  }
+
+  .rail-block p:not(.rail-label) {
+    color: var(--text-muted);
+  }
+
+  .rail-related {
+    display: grid;
+    gap: var(--space-3);
+    padding: 0;
+    list-style: none;
+  }
+
+  .rail-related a {
+    color: var(--text-muted);
+    line-height: 1.35;
+    text-decoration: none;
+  }
+
+  .rail-related a:hover {
+    color: var(--text);
+    text-decoration: underline;
+  }
+
+  .rail-top {
+    font-weight: 600;
   }
 </style>

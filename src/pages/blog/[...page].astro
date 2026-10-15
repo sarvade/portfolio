@@ -5,7 +5,7 @@
   empty page to find or index.
 */
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import PostList from '../../components/PostList.astro';
+import PostCard from '../../components/blog/PostCard.astro';
 import { getPosts, type PostEntry } from '../../lib/content';
 import { url } from '../../lib/url';
 
@@ -28,7 +28,15 @@ const { posts } = Astro.props;
       <h1>Blog</h1>
       <p>Notes from building pipelines: validation, reruns, query plans, and where AI actually helps. New posts roughly once a week.</p>
     </header>
-    <PostList posts={posts} headingLevel="h2" />
+    <ul class="post-grid" role="list">
+      {
+        posts.map((post, i) => (
+          <li class:list={{ wide: i === 0 }}>
+            <PostCard post={post} featured={i === 0} />
+          </li>
+        ))
+      }
+    </ul>
   </div>
 </BaseLayout>
 
@@ -49,7 +57,34 @@ const { posts } = Astro.props;
   }
 
   header p {
+    max-width: 62ch;
     margin-top: var(--space-3);
     color: var(--text-muted);
+  }
+
+  /* Cards fill the width: 1 column on phones, 2 on tablets and laptops, 3 on large screens.
+     The newest post spans the whole row. */
+  .post-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 720px) {
+    .post-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1240px) {
+    .post-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .post-grid > .wide {
+    grid-column: 1 / -1;
   }
 </style>

@@ -1,0 +1,202 @@
+---
+/*
+  "On this page" for blog posts, built at build time from the post's h2/h3 headings,
+  so it works without JavaScript.
+  - variant 'rail': a sticky list in the right-hand column on wide screens. A small
+    script marks the section being read (aria-current) with an IntersectionObserver.
+  - variant 'inline': a collapsed <details> block above the article on narrower screens.
+  The page shows one variant per breakpoint (display: none on the other), so screen
+  readers only ever meet one copy.
+*/
+import type { MarkdownHeading } from 'astro';
+
+interface Props {
+  headings: MarkdownHeading[];
+  variant: 'rail' | 'inline';
+}
+
+const { headings, variant } = Astro.props;
+
+interface Item {
+  slug: string;
+  text: string;
+  children: { slug: string; text: string }[];
+}
+
+// Group h3s under the h2 before them. An h3 before any h2 becomes a top-level item.
+const items: Item[] = [];
+for (const h of headings.filter((h) => h.depth === 2 || h.depth === 3)) {
+  const last = items.at(-1);
+  if (h.depth === 3 && last) last.children.push({ slug: h.slug, text: h.text });
+  else items.push({ slug: h.slug, text: h.text, children: [] });
+}
+---
+
+{
+  items.length > 1 &&
+    (variant === 'rail' ? (
+      <nav class="toc toc-rail" aria-label="On this page" data-toc>
+        <p class="toc-label">On this page</p>
+        <ol>
+          {items.map((item) => (
+            <li>
+              <a href={`#${item.slug}`}>{item.text}</a>
+              {item.children.length > 0 && (
+                <ol>
+                  {item.children.map((child) => (
+                    <li>
+                      <a href={`#${child.slug}`}>{child.text}</a>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </li>
+          ))}
+        </ol>
+      </nav>
+    ) : (
+      <details class="toc toc-inline">
+        <summary>On this page</summary>
+        <nav aria-label="On this page">
+          <ol>
+            {items.map((item) => (
+              <li>
+                <a href={`#${item.slug}`}>{item.text}</a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      </details>
+    ))
+}
+
+<script>
+  // Highlight the section being read in the rail. Without JS the list still works as links.
+  function setup() {
+    const nav = document.querySelector<HTMLElement>('[data-toc]');
+    if (!nav || !('IntersectionObserver' in window)) return;
+    const links = new Map<string, HTMLAnchorElement>();
+    nav.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((a) => {
+      links.set(decodeURIComponent(a.hash.slice(1)), a);
+    });
+    const targets = [...links.keys()]
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (targets.length === 0) return;
+
+    const visible = new Set<string>();
+    const mark = (id: string) => {
+      links.forEach((a, key) => {
+        if (key === id) a.setAttribute('aria-current', 'true');
+        else a.removeAttribute('aria-current');
+      });
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) visible.add(entry.target.id);
+          else visible.delete(entry.target.id);
+        }
+        // The first heading in document order that is in the band wins.
+        const current = targets.find((t) => visible.has(t.id));
+        if (current) mark(current.id);
+        else {
+          // Between headings: keep the last one above the band.
+          const above = targets.filter((t) => t.getBoundingClientRect().top < window.innerHeight * 0.3);
+          if (above.length) mark(above[above.length - 1].id);
+        }
+      },
+      { rootMargin: '-15% 0px -60% 0px' },
+    );
+    targets.forEach((t) => observer.observe(t));
+  }
+  setup();
+</script>
+
+<style>
+  .toc ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .toc a {
+    display: block;
+    color: var(--text-muted);
+    text-decoration: none;
+    line-height: 1.35;
+  }
+
+  .toc a:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+  }
+
+  .toc-label,
+  .toc-inline summary {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    letter-spacing: 0.02em;
+  }
+
+  /* Rail */
+  .toc-rail {
+    font-size: var(--text-sm);
+  }
+
+  .toc-rail .toc-label {
+    margin-bottom: var(--space-3);
+  }
+
+  .toc-rail > ol {
+    border-left: 1px solid var(--rule);
+  }
+
+  .toc-rail a {
+    margin-left: -1px;
+    padding: 0.35em 0 0.35em var(--space-4);
+    border-left: 2px solid transparent;
+  }
+
+  .toc-rail ol ol a {
+    padding-left: calc(var(--space-4) + var(--space-3));
+    font-size: 0.95em;
+  }
+
+  .toc-rail a[aria-current='true'] {
+    border-left-color: var(--signal);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .toc-rail a {
+      transition:
+        color 0.15s ease,
+        border-color 0.15s ease;
+    }
+  }
+
+  /* Inline */
+  .toc-inline {
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-s);
+    background: var(--surface);
+  }
+
+  .toc-inline summary {
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+  }
+
+  .toc-inline nav {
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .toc-inline li + li {
+    margin-top: var(--space-2);
+  }
+</style>
