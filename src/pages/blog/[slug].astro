@@ -162,6 +162,8 @@ const related = posts
   /* The article column is the measure here, so prose fills it and wide figures span it. */
   .post-body {
     max-width: none;
+    /* Lets full-width figures (Architecture sizes itself with cqw) span the article column, not the viewport. */
+    container-type: inline-size;
   }
 
   /* Long inline code (config keys, method chains) wraps instead of widening the page on phones. */
