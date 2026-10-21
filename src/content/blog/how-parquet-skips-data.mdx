@@ -1,0 +1,328 @@
+---
+title: 'Why is Parquet faster than CSV? The half of the answer that is easy to skip'
+description: Columnar is only half of why Parquet is fast. The other half is row groups, min/max stats and sort order, measured with DuckDB on 12 million rows.
+pubDate: 2026-10-21T15:00:00Z
+draft: true
+tags:
+  - parquet
+  - performance
+  - interviews
+---
+
+import Architecture from '../../components/viz/Architecture.astro';
+import Flow from '../../components/viz/Flow.astro';
+import Compare from '../../components/viz/Compare.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+import Callout from '../../components/viz/Callout.astro';
+import RowGroupScan from '../../components/viz/RowGroupScan.astro';
+
+Here's an interview question that sounds like a warm-up:
+
+> Why is Parquet faster than CSV?
+
+The common answer is "because it's columnar". That's true, and it's half the answer.
+
+Here's the other half. I wrote the same 12 million rows to 2 Parquet files and ran the same one-day query on both. One read 37.3 MB. The other read 2.2 MB. Same rows, same format, same engine. The only difference was the order of the rows.
+
+In this post: what's inside a Parquet file, the 2 tricks a reader uses to avoid work, why sort order decides whether the second trick works, and how to say all of it in an interview. Every number comes from a small DuckDB experiment I ran for this post (the core of the script is at the end).
+
+## The running example
+
+One table, `orders`, 12,000,000 rows of fake orders spread evenly over 2025. About 32,900 orders per day.
+
+| column | what it holds |
+| --- | --- |
+| `order_id` | 0 to 11,999,999 |
+| `order_date` | a date in 2025 |
+| `customer_id` | one of 500,000 customers |
+| `amount` | 0.00 to 199.99 |
+| `status` | placed, shipped, delivered or returned |
+| `sku` | one of 100,000 products |
+
+I saved it 3 ways:
+
+- `orders.csv`: 621.6 MB.
+- `orders_sorted.parquet`: rows sorted by `order_date`. 168.9 MB.
+- `orders_shuffled.parquet`: the same rows in random order. 197.7 MB.
+
+And the query we care about, the kind a dashboard runs all day:
+
+```sql
+SELECT sum(amount)
+FROM orders
+WHERE order_date = DATE '2025-03-14';
+```
+
+Keep this query in mind. We'll run it against all 3 files.
+
+## What's inside a Parquet file
+
+A CSV file is one long string. To find anything, a reader has to parse every line.
+
+A Parquet file is organized in boxes inside boxes. The [format spec](https://github.com/apache/parquet-format/blob/master/README.md) defines 3 levels:
+
+- **Row group**: a horizontal slice of the table, say 1 million rows.
+- **Column chunk**: inside each row group, all the values of one column, stored together.
+- **Page**: each column chunk is split into small pages, the unit of encoding and compression.
+
+At the very end of the file sits the **footer**. It holds the schema, where every column chunk starts, and (if the writer stored them, which most do) statistics for each chunk, including the **min and max** value.
+
+<Architecture
+  title="Our orders_sorted.parquet, opened up"
+  layers={[
+    { name: 'File', nodes: [{ label: '168.9 MB', note: '12,000,000 rows' }] },
+    {
+      name: 'Row groups',
+      nodes: [
+        { label: 'RG 0', note: 'Jan 01 to Jan 31' },
+        { label: 'RG 2', note: 'Mar 02 to Apr 02', tone: 'signal' },
+        { label: '... 12 in total', note: 'about 1 million rows each', tone: 'muted' },
+      ],
+    },
+    {
+      name: 'Column chunks in RG 2',
+      nodes: [
+        { label: 'order_id', note: '4.0 MB' },
+        { label: 'order_date', note: '308 bytes', tone: 'signal' },
+        { label: 'amount', note: '2.0 MB', tone: 'signal' },
+        { label: '... 3 more', tone: 'muted' },
+      ],
+    },
+    { name: 'Pages', nodes: [{ label: 'Encoded, compressed values' }] },
+  ]}
+  checks={{
+    name: 'Footer (7,438 bytes, read first)',
+    nodes: [
+      { label: 'Schema' },
+      { label: 'Where each chunk starts' },
+      { label: 'Min and max per chunk', tone: 'signal' },
+    ],
+  }}
+  caption="Real sizes from parquet_metadata() and parquet_file_metadata() on the experiment file. Yes, the order_date chunk is 308 bytes for a million dates. More on that later."
+/>
+
+The footer is what makes skipping possible. A reader opens the file, jumps to the end, and reads a few KB of metadata. Now it knows the layout of a 169 MB file without touching the data.
+
+What it does with that map is 2 separate things.
+
+## Trick 1: read only the columns you asked for
+
+Because each column chunk is stored in one contiguous run of bytes, a reader that needs only `amount` can seek straight to the 12 `amount` chunks and ignore everything else. This is **projection pushdown**, and it's the "columnar" part everyone mentions.
+
+The numbers from my run, on the sorted file:
+
+- Every column: **167.2 MB** read, 429 ms.
+- Only `sum(amount)`: **23.8 MB** read, 38 ms.
+
+Same file, same rows, a seventh of the bytes, because `amount` is about 14% of the file.
+
+The CSV can't do this. A line has to be parsed past the 3rd comma before the reader even finds `amount`. So `sum(amount)` on the CSV read all 621.6 MB and took about 1.6 seconds.
+
+Side note: the CSV doesn't carry types either. DuckDB's sniffer guessed `amount` was a `DOUBLE`, so the CSV sum came back as a float that changed in the last digits between runs (`1200186947.1699347` in one run, `1200186947.1699343` in the next). The Parquet file stores `amount` as `DECIMAL(10,2)` and returned `1200186947.17` every time.
+
+## Trick 2: skip row groups that can't match
+
+Now add the filter: `WHERE order_date = '2025-03-14'`.
+
+Projection pushdown already cuts us down to 2 columns, `order_date` and `amount`. But do we need them from all 12 row groups?
+
+The reader checks the footer first. Each row group has a min and max `order_date`. If March 14 is outside that range, no row in that group can match, so the reader skips the whole group without reading a byte of it. This is **filter pushdown**, sometimes called row group pruning or zone maps.
+
+<Flow
+  title="What the reader does before touching data"
+  steps={[
+    { label: 'Read the footer', note: '7,438 bytes' },
+    { label: 'Keep only order_date and amount', note: 'projection pushdown' },
+    { label: 'Check min/max per row group', note: 'is Mar 14 inside the range?', tone: 'signal' },
+    { label: 'Read the chunks that survive', note: '1 row group out of 12' },
+  ]}
+/>
+
+In the sorted file, the ranges are neat and narrow. RG 2 covers March 02 to April 02. It's the only group that can hold March 14, so the reader reads 2 chunks out of 72.
+
+Result: **2.2 MB** read, 5 ms. That's 1.3% of the file.
+
+## The same trick on the shuffled file
+
+Now run the exact same query on the shuffled file.
+
+Every row group holds a random million rows from the whole year. So every row group's `order_date` range is January 01 to December 31. March 14 is inside every range. The min/max check can't rule anything out.
+
+Result: **37.3 MB** read. All 12 row groups, still only 2 columns. Projection pushdown worked. Filter pushdown did nothing.
+
+Same rows, same query, 17 times more bytes. Try it yourself:
+
+<RowGroupScan caption="Switch between the files and queries. Every size, range and measurement is from the real files in the experiment, none of it is illustrative. The measured bytes run above the sum of the chunks (by up to about 0.25 MB here), since the reader also fetches the footer and reads in larger ranges than the chunks themselves." />
+
+<Callout label="The half that is easy to skip">
+Columnar storage decides which columns you read. Sort order decides how many row groups you read. Min/max stats only help when similar values sit together in the file.
+</Callout>
+
+## 2 bonus things the sorted file did
+
+**It got smaller.** In the sorted file the whole `order_date` column takes 3,631 bytes. In the shuffled file it takes 13.6 MB. Sorted dates come in long runs of the same value (about 32,900 in a row), and Parquet's [dictionary and run-length encodings](https://github.com/apache/parquet-format/blob/master/Encodings.md) store a run as "this value, this many times". Shuffled dates still get a dictionary, so each one costs about 9 bits, but there are no runs to collapse. `order_id` shrank too, from 63.2 MB to 48.0 MB, because sequential IDs compress better than random ones.
+
+**A boundary day costs 2 row groups.** Row groups are cut by row count, not by date. RG 1 ends on March 02 and RG 2 starts on March 02. A query for March 02 has to read both: 4.2 MB instead of 2.2 MB. Still tiny, but it shows that the min/max ranges are about where the cuts fall, not about calendar days.
+
+## The surprise: my "gotcha" didn't happen
+
+I expected this to break skipping:
+
+```sql
+WHERE strftime(order_date, '%Y-%m-%d') = '2025-03-14'
+```
+
+A common rule of thumb says wrapping a column in a function hides it from the min/max check. In DuckDB 1.5.6 it didn't: the query still read 2.2 MB. `EXPLAIN` showed the expression pushed into the Parquet scan (trimmed):
+
+```text
+┌─────────────┴─────────────┐
+│        PARQUET_SCAN       │
+│    Projections: amount    │
+│          Filters:         │
+│ (strftime(order_date, '%Y-│
+│  %m-%d') = '2025-03-14')  │
+└───────────────────────────┘
+```
+
+I only tested DuckDB, so I'm not claiming every engine does this. The lesson I took away: don't trust rules of thumb about pushdown. Check the plan of the engine you actually run. In Spark, look for `PushedFilters` on the Parquet scan in `explain()`.
+
+## All the numbers in one place
+
+<Compare
+  title="Bytes read for the query, by file (log scale)"
+  scale="log"
+  rows={[
+    { label: 'CSV, one day', value: 621.6, display: '621.6 MB', tone: 'before' },
+    { label: 'Parquet, every column', value: 167.2, display: '167.2 MB', tone: 'before' },
+    { label: 'Shuffled Parquet, one day', value: 37.3, display: '37.3 MB', tone: 'before' },
+    { label: 'Parquet, sum(amount)', value: 23.8, display: '23.8 MB', tone: 'after' },
+    { label: 'Sorted Parquet, one day', value: 2.2, display: '2.2 MB', tone: 'after' },
+  ]}
+  caption="Measured on DuckDB 1.5.6, 2 threads, 2 vCPU Linux sandbox, files on local disk. Bytes counted by wrapping the filesystem DuckDB reads through. The 'every column' and 'sum(amount)' rows are the sorted file without a filter."
+/>
+
+From the CSV to the sorted Parquet file, the one-day query went from 621.6 MB to 2.2 MB read, and from about 1.5 seconds to 5 ms. Timings are medians of 5 warm runs on a small machine, so trust the bytes more than the milliseconds.
+
+## What to do with this
+
+**Sort (or cluster) on the column you filter by most, before you write.** Usually a date or timestamp. The [DuckDB docs](https://duckdb.org/docs/current/data/parquet/tips.html) recommend exactly this to make min/max ranges tight and non-overlapping. Table formats offer the same idea as a write option, for example a sort order on an Iceberg table.
+
+**Don't `SELECT *` from wide tables.** Projection pushdown only helps if you let it.
+
+**Pick a sane row group size.** Too big, and one group covers too wide a range to skip. Too small, and you pay metadata overhead on every scan. DuckDB's [performance guide](https://duckdb.org/docs/current/guides/performance/file_formats.html) says it works best with 100K to 1M rows per group, with at least as many groups as threads. The Parquet spec's own suggestion is large row groups, 512 MB to 1 GB, written with HDFS blocks in mind. Your engine's docs beat both.
+
+**Know the layer above.** Directory partitioning like `order_date=2025-03-14/` lets an engine skip whole files by path. Min/max stats skip row groups inside a file. You usually want both: partition coarsely, sort within.
+
+## In the interview
+
+**How it's asked:** "Why is Parquet faster than CSV?", "What is predicate pushdown?", "This query scans 2 TB for one day of data. Why, and how would you fix it?"
+
+**A strong answer covers:**
+
+1. Layout: row groups, column chunks, pages, and a footer with schema, offsets and min/max stats.
+2. Projection pushdown: read only the column chunks you need.
+3. Filter pushdown: skip row groups whose min/max range can't match.
+4. The condition for 3 to work: values you filter on must be clustered, which usually means sorting on write.
+5. A bonus: sorted, typed columns also compress better, so there are fewer bytes to read in the first place.
+6. How you'd verify it: the query plan and bytes scanned, not a guess.
+
+**Likely follow-ups:**
+
+- *"What if I filter on a high-cardinality ID that isn't sorted?"* Min/max won't help. Parquet also defines optional [Bloom filters](https://github.com/apache/parquet-format/blob/master/BloomFilter.md) per column chunk for equality lookups, if your writer and reader support them.
+- *"Can it skip smaller than a row group?"* Yes. The spec allows min/max at the page level too, through the page index, so some readers skip pages inside a group.
+- *"Partition pruning vs predicate pushdown?"* Partitioning skips files by directory path. Pushdown skips row groups inside a file by stats.
+- *"How does ORC compare?"* Same idea, different names. [ORC](https://orc.apache.org/specification/ORCv1/) splits files into stripes and keeps min/max indexes inside them.
+- *"How does this relate to Spark?"* Spark's Parquet reader pushes filters down by default (`spark.sql.parquet.filterPushdown` is `true` in the [Spark docs](https://spark.apache.org/docs/latest/sql-data-sources-parquet.html)). File sizes also drive its join choices, which I covered in [how Spark picks a join](../spark-join-strategies/).
+
+## Cheat sheet
+
+<Matrix
+  title="Parquet skipping, on one screen"
+  columns={['Thing', 'What it skips', 'When it works', 'How to check']}
+  rows={[
+    ['Projection pushdown', 'Columns you did not select', 'Always, if you name the columns', 'Plan lists only your columns'],
+    ['Min/max on row groups', 'Whole row groups', 'Filter column is sorted or clustered', 'Bytes scanned drop with the filter'],
+    ['Page index', 'Pages inside a row group', 'Writer wrote it, reader uses it', 'Engine docs, scan metrics'],
+    ['Bloom filter', 'Row groups for equality lookups', 'High-cardinality keys, if supported', 'Engine docs, scan metrics'],
+    ['Directory partitions', 'Whole files', 'Filter on the partition column', 'Files listed in the plan'],
+  ]}
+/>
+
+The 3 lines I'd put on a sticky note:
+
+- Columnar picks the columns. Sort order picks the row groups.
+- A row group whose range is Jan 01 to Dec 31 can never be skipped.
+- Check bytes scanned, not your intuition.
+
+## How to reproduce
+
+Environment: Python 3.13.16, DuckDB 1.5.6, fsspec 2026.9.0, Linux on 2 vCPUs, 2 DuckDB threads, files on local disk. The full run takes under a minute. Here's the core of it:
+
+```python
+import duckdb
+from fsspec.implementations.local import LocalFileSystem
+
+con = duckdb.connect()
+con.execute("SET threads = 2")
+con.execute("""
+CREATE TABLE orders AS
+SELECT i AS order_id,
+       DATE '2025-01-01' + CAST(i * 365 // 12000000 AS INTEGER) AS order_date,
+       (hash(i) % 500000)::BIGINT AS customer_id,
+       round((hash(i * 7) % 20000) / 100.0, 2)::DECIMAL(10, 2) AS amount,
+       ['placed', 'shipped', 'delivered', 'returned'][(hash(i * 3) % 4)::INT + 1] AS status,
+       'sku-' || lpad((hash(i * 11) % 100000)::VARCHAR, 6, '0') AS sku
+FROM range(12000000) t(i)
+""")
+con.execute("COPY (FROM orders ORDER BY order_date, order_id) TO 'orders.csv' (HEADER)")
+con.execute("COPY (FROM orders ORDER BY order_date, order_id) TO 'orders_sorted.parquet' "
+            "(FORMAT parquet, ROW_GROUP_SIZE 1000000)")
+con.execute("COPY (FROM orders ORDER BY hash(order_id)) TO 'orders_shuffled.parquet' "
+            "(FORMAT parquet, ROW_GROUP_SIZE 1000000)")
+
+# Count every byte DuckDB reads by routing it through a wrapped local filesystem.
+class Counting(LocalFileSystem):
+    protocol = ("counting",)
+    bytes_read = 0
+
+    @classmethod
+    def _strip_protocol(cls, path):
+        return LocalFileSystem._strip_protocol(str(path).removeprefix("counting://"))
+
+    def _open(self, path, mode="rb", **kw):
+        f = super()._open(self._strip_protocol(path), mode, **kw)
+        raw = f.read
+        def read(n=-1):
+            b = raw(n)
+            Counting.bytes_read += len(b)
+            return b
+        f.read = read
+        return f
+
+con.register_filesystem(Counting())
+con.execute("SET enable_external_file_cache = false")
+# Then, per query: reset Counting.bytes_read, run it once to count bytes,
+# and time 5 more runs, e.g. on 'counting:///abs/path/orders_sorted.parquet'.
+```
+
+To see the row groups and their min/max yourself:
+
+```sql
+SELECT row_group_id, stats_min_value, stats_max_value
+FROM parquet_metadata('orders_sorted.parquet')
+WHERE path_in_schema = 'order_date'
+ORDER BY row_group_id;
+```
+
+DuckDB treats `ROW_GROUP_SIZE` as a minimum and fills groups in 2,048-row vectors, so each group holds 1,001,472 rows (489 x 2,048) and the last one holds 983,808.
+
+## References
+
+- [Apache Parquet format spec](https://github.com/apache/parquet-format/blob/master/README.md): file layout, row groups, column chunks, pages, footer, statistics.
+- [Parquet encodings](https://github.com/apache/parquet-format/blob/master/Encodings.md): dictionary and run-length encoding.
+- [Parquet Bloom filters](https://github.com/apache/parquet-format/blob/master/BloomFilter.md).
+- [DuckDB: Parquet tips](https://duckdb.org/docs/current/data/parquet/tips.html): `ROW_GROUP_SIZE` and sorting for row group pruning.
+- [DuckDB: file formats performance guide](https://duckdb.org/docs/current/guides/performance/file_formats.html): row group size guidance.
+- [DuckDB: Parquet overview](https://duckdb.org/docs/current/data/parquet/overview.html): projection and filter pushdown.
+- [Spark: Parquet files](https://spark.apache.org/docs/latest/sql-data-sources-parquet.html): `spark.sql.parquet.filterPushdown`.
+- [ORC specification v1](https://orc.apache.org/specification/ORCv1/).

@@ -61,6 +61,7 @@ Blog posts can use the same components when written as `.mdx`, plus a few more:
 - `<Schema title="..." tables={[{ name, note, columns: [{ name, type, key, note, added }] }]} relation={{ label, cardinality }} />`: a data model, one card per table; `added` marks proposed columns.
 - `<RerunResolver />`: the interactive Airflow 3.3 rerun-version ladder used in the Airflow reruns post. Its rules live in `rerun-resolver.ts`.
 - `<DeleteScope caption="..." />`: an interactive Iceberg delete resolver used in the equality deletes post. Pick a commit, equality deletes or deletion vectors, and the spec's sequence-number rule or a wrong one, and every data row shows whether a delete hides it and why. Its scenario and rules live in `delete-scope.ts`.
+- `<RowGroupScan caption="..." />`: an interactive Parquet file map used in the Parquet skipping post. Pick a file (sorted by date or shuffled) and a query, and a grid of 12 row groups by 6 columns shows which column chunks the reader reads and which it skips by projection and min/max statistics, with the bytes measured in the post's experiment. Column widths are each column's share of the file's bytes. Its real file metadata, measurements and rules live in `row-group-scan.ts`.
 
 Animated components play once when scrolled into view, and render static with reduced motion or without JavaScript.
 

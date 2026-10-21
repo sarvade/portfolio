@@ -1,0 +1,575 @@
+---
+/*
+  Interactive: which column chunks of a Parquet file does a query read?
+  Pick the file (sorted by order_date or shuffled) and a query. The grid shows
+  the file's 12 row groups (rows) by 6 columns, with each column as wide as its
+  share of the file's bytes. Filled cells are read, hollow cells are skipped.
+
+  Logic and real metadata live in row-group-scan.ts and are shared with the
+  server render, so without JavaScript this shows the default state plus a
+  table of every measured run.
+*/
+import {
+  COLUMNS,
+  COLUMN_SHORT,
+  DEFAULT_INPUTS,
+  FILES,
+  MEASURED,
+  QUERIES,
+  plan,
+  shortDate,
+  type FileKey,
+  type QueryKey,
+} from './row-group-scan';
+
+interface Props {
+  /** Prefix for input names, so two widgets on one page stay independent. */
+  id?: string;
+  title?: string;
+  caption?: string;
+}
+
+const { id = 'rgs', title = 'What does this query actually read?', caption } = Astro.props;
+
+const fileOptions = Object.entries(FILES).map(([key, f]) => [key, f.label]) as [FileKey, string][];
+const queryOptions = Object.entries(QUERIES).map(([key, q]) => [key, q.label]) as [QueryKey, string][];
+
+const initial = plan(DEFAULT_INPUTS);
+const colsTemplate = (shares: number[]) => shares.map((s) => `${(Math.max(s, 0.04) * 100).toFixed(2)}fr`).join(' ');
+const rowGroups = FILES[DEFAULT_INPUTS.file].rowGroups;
+---
+
+<figure class="rgs" data-rgs data-prefix={id} style={`--cols: ${colsTemplate(initial.columnShare)}`}>
+  <p class="rgs-head">
+    <span class="rgs-kicker">Interactive</span>
+    <span class="rgs-title">{title}</span>
+  </p>
+  <p class="rgs-hint">
+    The real metadata of a 12 million row file: 12 row groups by 6 columns. Each column is drawn as wide as its share of
+    the file's bytes.
+  </p>
+
+  <div class="rgs-controls">
+    <fieldset class="rgs-field">
+      <legend class="rgs-label">File</legend>
+      <div class="rgs-seg">
+        {
+          fileOptions.map(([value, label]) => (
+            <label>
+              <input
+                type="radio"
+                name={`${id}-file`}
+                value={value}
+                checked={DEFAULT_INPUTS.file === value}
+                disabled
+              />
+              <span>{label}</span>
+            </label>
+          ))
+        }
+      </div>
+    </fieldset>
+    <fieldset class="rgs-field">
+      <legend class="rgs-label">Query</legend>
+      <div class="rgs-seg">
+        {
+          queryOptions.map(([value, label]) => (
+            <label>
+              <input
+                type="radio"
+                name={`${id}-query`}
+                value={value}
+                checked={DEFAULT_INPUTS.query === value}
+                disabled
+              />
+              <span>{label}</span>
+            </label>
+          ))
+        }
+      </div>
+    </fieldset>
+  </div>
+
+  <p class="rgs-sql"><code data-sql>{QUERIES[DEFAULT_INPUTS.query].sql}</code></p>
+
+  <div class="rgs-grid" aria-hidden="true">
+    <div class="rgs-row rgs-colhead">
+      <span class="rgs-rowlabel"></span>
+      {COLUMNS.map((c) => <span class="rgs-col">{COLUMN_SHORT[c]}</span>)}
+    </div>
+    {
+      rowGroups.map((g, r) => (
+        <div class="rgs-row" data-rg={r} data-kept={initial.kept[r] ? 'yes' : 'no'} style={`--r: ${r}`}>
+          <span class="rgs-rowlabel">
+            <span class="rgs-rgname">RG {r}</span>
+            <span class="rgs-range">
+              <span data-min>{shortDate(g.min)} to</span> <span data-max>{shortDate(g.max)}</span>
+            </span>
+          </span>
+          {COLUMNS.map((_, c) => (
+            <span class="rgs-cell" data-read={initial.cells[r][c] ? 'yes' : 'no'} />
+          ))}
+        </div>
+      ))
+    }
+  </div>
+
+  <ul class="rgs-legend">
+    <li><span class="rgs-swatch rgs-swatch-read" aria-hidden="true"></span>Column chunk read</li>
+    <li><span class="rgs-swatch" aria-hidden="true"></span>Skipped</li>
+    <li>Row labels: the row group's min and max order_date</li>
+  </ul>
+
+  <div class="rgs-result">
+    <p class="rgs-result-label">Result</p>
+    <p class="rgs-summary" data-summary aria-live="polite">{initial.summary}</p>
+  </div>
+
+  <details class="rgs-all">
+    <summary>All 8 measured runs</summary>
+    <div class="rgs-tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Query</th>
+            {fileOptions.map(([, label]) => <th scope="col">{label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {
+            queryOptions.map(([q, label]) => (
+              <tr>
+                <th scope="row">{label}</th>
+                {fileOptions.map(([f]) => (
+                  <td>
+                    {MEASURED[f][q].mb.toFixed(1)} MB, {MEASURED[f][q].ms} ms
+                  </td>
+                ))}
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import { FILES, QUERIES, plan, shortDate, type FileKey, type QueryKey } from './row-group-scan';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-rgs]')) {
+    const prefix = root.dataset.prefix ?? 'rgs';
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const summary = root.querySelector<HTMLElement>('[data-summary]');
+    const sql = root.querySelector<HTMLElement>('[data-sql]');
+    const rows = [...root.querySelectorAll<HTMLElement>('[data-rg]')];
+
+    const read = (field: 'file' | 'query') =>
+      root.querySelector<HTMLInputElement>(`input[name="${prefix}-${field}"]:checked`)?.value;
+
+    const update = () => {
+      const file = (read('file') ?? 'sorted') as FileKey;
+      const query = (read('query') ?? 'day') as QueryKey;
+      const p = plan({ file, query });
+      const groups = FILES[file].rowGroups;
+
+      root.style.setProperty('--cols', p.columnShare.map((s) => `${(Math.max(s, 0.04) * 100).toFixed(2)}fr`).join(' '));
+      rows.forEach((row, r) => {
+        row.dataset.kept = p.kept[r] ? 'yes' : 'no';
+        const min = row.querySelector<HTMLElement>('[data-min]');
+        const max = row.querySelector<HTMLElement>('[data-max]');
+        if (min) min.textContent = `${shortDate(groups[r].min)} to`;
+        if (max) max.textContent = shortDate(groups[r].max);
+        row.querySelectorAll<HTMLElement>('.rgs-cell').forEach((cell, c) => {
+          cell.dataset.read = p.cells[r][c] ? 'yes' : 'no';
+        });
+      });
+      if (sql) sql.textContent = QUERIES[query].sql;
+      if (summary) summary.textContent = p.summary;
+    };
+
+    for (const input of root.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
+      input.disabled = false;
+      input.addEventListener('change', update);
+    }
+    root.classList.add('is-live');
+    update();
+
+    // The first time the widget scrolls into view, the read cells fill in top to bottom, like a scan.
+    if (!reduce.matches && 'IntersectionObserver' in window) {
+      root.classList.add('is-armed');
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            root.classList.add('is-in');
+            io.disconnect();
+          }
+        },
+        { threshold: 0.25 },
+      );
+      io.observe(root);
+    }
+  }
+</script>
+
+<style>
+  .rgs {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .rgs code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .rgs-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .rgs-kicker,
+  .rgs-result-label {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rgs-title {
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .rgs-hint {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .rgs-controls {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  .rgs-field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .rgs-label {
+    float: left;
+    padding: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  /* Segmented control built from real radio buttons */
+  .rgs-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-self: start;
+    max-width: 100%;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .rgs-seg label {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+  }
+
+  .rgs-seg label + label {
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .rgs-seg input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .rgs-seg span {
+    flex: 1 1 auto;
+    padding: 0.35rem 0.7rem;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 550;
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  .rgs-seg input:checked + span {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  .rgs-seg input:focus-visible + span {
+    outline: 2px solid var(--signal);
+    outline-offset: -4px;
+    box-shadow: inset 0 0 0 4px var(--bg);
+  }
+
+  .rgs-seg input:disabled {
+    cursor: default;
+  }
+
+  .rgs:not(.is-live) .rgs-seg input:not(:checked) + span {
+    color: var(--text-muted);
+  }
+
+  .rgs-sql {
+    margin-top: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-s);
+    background: var(--bg);
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  /* The file map */
+  .rgs-grid {
+    display: grid;
+    gap: 3px;
+    margin-top: var(--space-4);
+  }
+
+  .rgs-row {
+    display: grid;
+    grid-template-columns: 6.5rem var(--cols);
+    align-items: center;
+    gap: 3px;
+    transition: grid-template-columns 0.5s ease;
+  }
+
+  .rgs-colhead .rgs-col {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .rgs-rowlabel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    transition: opacity 0.3s ease;
+  }
+
+  .rgs-rgname {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .rgs-range {
+    color: var(--text-muted);
+  }
+
+  .rgs-range span {
+    white-space: nowrap;
+  }
+
+  .rgs-row[data-kept='no'] .rgs-rowlabel {
+    opacity: 0.5;
+  }
+
+  .rgs-cell {
+    display: block;
+    height: 22px;
+    min-width: 0;
+    border: 1.5px solid var(--rule-strong);
+    border-radius: 3px;
+    background: transparent;
+    forced-color-adjust: none;
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease;
+    transition-delay: calc(var(--r, 0) * 30ms);
+  }
+
+  .rgs-cell[data-read='yes'] {
+    border-color: var(--signal);
+    background: var(--signal);
+  }
+
+  .rgs-row[data-kept='no'] .rgs-cell {
+    border-style: dashed;
+  }
+
+  /* First view: read cells start hollow and fill top to bottom */
+  .rgs.is-armed:not(.is-in) .rgs-cell[data-read='yes'] {
+    border-color: var(--rule-strong);
+    background: transparent;
+  }
+
+  .rgs.is-armed .rgs-cell {
+    transition-delay: calc(var(--r, 0) * 60ms);
+  }
+
+  .rgs.is-armed.is-in .rgs-cell {
+    transition-delay: calc(var(--r, 0) * 30ms);
+  }
+
+  .rgs-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .rgs-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .rgs-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 12px;
+    border: 1.5px solid var(--rule-strong);
+    border-radius: 3px;
+    forced-color-adjust: none;
+  }
+
+  .rgs-swatch-read {
+    border-color: var(--signal);
+    background: var(--signal);
+  }
+
+  .rgs-result {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1.5px solid var(--signal);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+
+  .rgs-summary {
+    margin-top: var(--space-1);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  .rgs-all {
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+  }
+
+  .rgs-all summary {
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .rgs-tablewrap {
+    margin-top: var(--space-2);
+    overflow-x: auto;
+  }
+
+  .rgs-all table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .rgs-all th,
+  .rgs-all td {
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .rgs-all td {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @container (min-width: 560px) {
+    .rgs-row {
+      grid-template-columns: 9.5rem var(--cols);
+    }
+
+    .rgs-rowlabel {
+      flex-direction: row;
+      gap: var(--space-2);
+    }
+
+    .rgs-range {
+      white-space: nowrap;
+    }
+
+    .rgs-colhead .rgs-col {
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rgs-row,
+    .rgs-rowlabel,
+    .rgs-cell,
+    .rgs.is-armed .rgs-cell,
+    .rgs.is-armed.is-in .rgs-cell {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .rgs-seg input:checked + span {
+      outline: 2px solid CanvasText;
+      outline-offset: -3px;
+    }
+
+    .rgs-cell[data-read='yes'],
+    .rgs-swatch-read {
+      background: CanvasText;
+    }
+  }
+</style>
