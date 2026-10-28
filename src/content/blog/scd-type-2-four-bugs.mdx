@@ -1,0 +1,409 @@
+---
+title: 'SCD Type 2 explained, and 4 bugs hiding in the textbook version'
+description: One customer who keeps moving, the textbook SCD Type 2 load, and 4 bugs around it, reproduced in DuckDB. Plus the fix and how to explain it in an interview.
+pubDate: 2026-10-28T15:00:00Z
+draft: true
+tags:
+  - data-modeling
+  - sql
+  - interviews
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+import Callout from '../../components/viz/Callout.astro';
+import Schema from '../../components/viz/Schema.astro';
+import VersionTimeline from '../../components/viz/VersionTimeline.astro';
+
+Here's a classic data modeling question:
+
+> Our customers move. Finance wants revenue by the city the customer lived in **when they ordered**, not where they live today. Design the customer table and the daily load.
+
+The standard first half of the answer: "SCD Type 2. Keep every version of the customer as its own row, with a start date, an end date and a current flag."
+
+The standard second half is the load: expire the old row, insert the new one. That's the textbook answer, and it works on the happy path.
+
+I wanted to see how it does off the happy path, so I ran it in DuckDB against 4 ordinary batches. It lost a change, gave a customer 2 current rows and wrote a row that ends before it starts. Then the usual way of querying the table counted an order twice.
+
+In this post: what Type 2 is in plain words, the textbook load, 3 bugs in the load and 1 in the query that reads it (with the output from my run), a fix built on window functions, and how to say all of it in an interview.
+
+## Type 2 in plain words
+
+A **dimension** is a table that describes things: customers, products, stores. Facts (orders, clicks, payments) point at them.
+
+When a customer's city changes, you have 3 classic choices. The names come from the [Kimball Group's list of techniques](https://www.kimballgroup.com/techniques/dimensional-modeling-techniques/):
+
+- **Type 1, overwrite.** Update the city in place. Simple, but every old order now looks like it came from the new city.
+- **Type 2, add a new row.** Close the old row and add a new one. History is kept.
+- **Type 3, add a new attribute.** Keep a `previous_city` column next to `city`. You get exactly one step of history.
+
+Finance's question needs Type 2. [Kimball's definition](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/type-2/) asks for at least 3 extra columns: when the row became effective, when it expired, and a current row indicator.
+
+Here's the table we'll use for the whole post:
+
+<Schema
+  title="The running example: dim_customer"
+  tables={[
+    {
+      name: 'dim_customer',
+      note: 'One row per version of a customer',
+      columns: [
+        { name: 'customer_id', type: 'int', note: 'The business key. Repeats once per version.' },
+        { name: 'city', type: 'varchar', note: 'The attribute we track. Can be NULL.' },
+        { name: 'valid_from', type: 'date', note: 'First day this version is true' },
+        { name: 'valid_to', type: 'date', note: 'Day the next version starts. 9999-12-31 while current.' },
+        { name: 'is_current', type: 'boolean', note: 'True on exactly one row per customer' },
+      ],
+    },
+  ]}
+  caption="A real dimension also gets a surrogate key per row, which facts store instead of customer_id. I left it out to keep the example small."
+/>
+
+Our star is customer 42. She lived in Pune from January 1 and moved to Bengaluru on March 1. Done right, her history looks like this:
+
+<VersionTimeline
+  title="Customer 42, stored correctly"
+  start="2026-01-01"
+  end="2026-07-01"
+  lanes={[
+    {
+      name: 'dim_customer',
+      versions: [
+        { label: 'Pune', from: '2026-01-01', to: '2026-03-01' },
+        { label: 'Bengaluru', from: '2026-03-01', current: true },
+      ],
+    },
+  ]}
+/>
+
+2 rows, no gaps, no overlap, 1 current row. Any date you pick lands on exactly one row, and that row is right. Hold on to that sentence, because every bug below breaks half of it.
+
+## The textbook load
+
+Each day a staging table `stg` arrives with `customer_id`, `city` and `effective_date`. The load is 2 statements:
+
+```sql
+-- Step 1: expire the current row when something changed
+UPDATE dim_customer d
+SET valid_to = s.effective_date, is_current = false
+FROM stg s
+WHERE d.customer_id = s.customer_id
+  AND d.is_current
+  AND d.city <> s.city;
+
+-- Step 2: insert a current row for every key that has none now
+INSERT INTO dim_customer
+SELECT s.customer_id, s.city, s.effective_date, DATE '9999-12-31', true
+FROM stg s
+LEFT JOIN dim_customer d
+  ON d.customer_id = s.customer_id AND d.is_current
+WHERE d.customer_id IS NULL;
+```
+
+<Flow
+  title="The textbook Type 2 load"
+  steps={[
+    { label: 'Land the batch in stg' },
+    { label: 'Expire changed current rows', note: 'set valid_to, is_current = false' },
+    { label: 'Insert new current rows', note: 'for keys with no current row' },
+  ]}
+/>
+
+Step 2 covers brand new customers and the ones step 1 just expired, in one query. It's neat. Now the 4 batches I fed it.
+
+## Bug 1: the change that compares to NULL
+
+Customer 9 signed up without a city, so her first row has `city = NULL`. On March 1 she adds one: Lisbon.
+
+After the load, the table still says NULL. No error, no new row. The change is just gone.
+
+The culprit is `d.city <> s.city`. Any comparison with NULL returns NULL, not true, and the [DuckDB docs](https://duckdb.org/docs/2.0/sql/expressions/comparison_operators.html) say so directly: "Whenever either of the input arguments is NULL, the output of the comparison is NULL." A WHERE clause only keeps rows where the condition is true, so step 1 skips her. Then step 2 sees she still has a current row and skips her too.
+
+It fails the other way as well. Lisbon to NULL is also invisible.
+
+The fix is a NULL-safe comparison:
+
+```sql
+AND d.city IS DISTINCT FROM s.city        -- DuckDB, Postgres, Spark SQL
+AND NOT (d.city <=> s.city)               -- Spark's null-safe equal, negated
+```
+
+`IS DISTINCT FROM` treats 2 NULLs as equal and NULL versus a value as different. Spark documents `<=>` on its [NULL semantics page](https://spark.apache.org/docs/latest/sql-ref-null-semantics.html).
+
+Small aside: this pattern is everywhere. Even the [SCD Type 2 example in DuckDB's own MERGE guide](https://duckdb.org/docs/2.0/guides/sql_features/merge) compares with `<>`. That's fine when the columns can never be NULL. It's worth one second of thought each time.
+
+## Bug 2: 2 changes in one batch
+
+Customer 7 lived in Austin. Then the change feed delivers 2 rows in the same batch: Denver from May 1, and Boston from May 20. Perfectly normal for a CDC feed, or for a daily extract after a few missed days.
+
+Here's what the textbook load did:
+
+<VersionTimeline
+  title="Customer 7 after one batch with 2 changes"
+  start="2026-01-01"
+  end="2026-07-01"
+  lanes={[
+    {
+      name: 'Textbook load',
+      versions: [
+        { label: 'Austin', from: '2026-01-01', to: '2026-05-01' },
+        { label: 'Denver', from: '2026-05-01', current: true },
+        { label: 'Boston', from: '2026-05-20', current: true },
+      ],
+    },
+    {
+      name: 'Fixed load (later in this post)',
+      versions: [
+        { label: 'Austin', from: '2026-01-01', to: '2026-05-01' },
+        { label: 'Denver', from: '2026-05-01', to: '2026-05-20' },
+        { label: 'Boston', from: '2026-05-20', current: true },
+      ],
+    },
+  ]}
+  caption="Rows from my DuckDB 2.0.0 run. Dashed orange marks a row that breaks the one-row-per-date rule."
+/>
+
+2 current rows. Every fact joined on `is_current` now counts customer 7 twice.
+
+Step 1 had its own quiet problem. The Austin row matched 2 staging rows, and `UPDATE ... FROM` just picks one. The [DuckDB MERGE docs](https://duckdb.org/docs/2.0/sql/statements/merge_into) say this outright: `UPDATE ... FROM` uses an arbitrary matching source row. In my run it happened to pick Denver's date.
+
+What if you use `MERGE` instead? It refuses. Here's DuckDB:
+
+```text
+Invalid Input Error: MERGE INTO command cannot affect the same target row
+more than once. A target row matched more than one source row; ensure the
+source rows are deduplicated or the ON condition is unique.
+```
+
+Delta Lake does the same thing and fails with [`DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE`](https://docs.databricks.com/aws/en/sql/language-manual/delta-merge-into.html). A loud failure is better than a silent duplicate. But it still means a 3 AM page, and the honest fix is the same either way: the load has to understand that one batch can hold several versions of one key.
+
+## Bug 3: the change that arrives late
+
+Back to customer 42. On May 22 a correction arrives: she actually lived in Mumbai between Pune and Bengaluru, from February 10. The source system was late, not wrong.
+
+The textbook load treats every incoming row as "the newest". So step 1 closes her current row (Bengaluru, from March 1) with `valid_to = Feb 10`, and step 2 makes Mumbai current:
+
+<VersionTimeline
+  title="Customer 42 after a late-arriving change"
+  start="2026-01-01"
+  end="2026-07-01"
+  lanes={[
+    {
+      name: 'Textbook load',
+      versions: [
+        { label: 'Pune', from: '2026-01-01', to: '2026-03-01' },
+        { label: 'Bengaluru', from: '2026-03-01', to: '2026-02-10' },
+        { label: 'Mumbai', from: '2026-02-10', current: true },
+      ],
+    },
+    {
+      name: 'Fixed load',
+      versions: [
+        { label: 'Pune', from: '2026-01-01', to: '2026-02-10' },
+        { label: 'Mumbai', from: '2026-02-10', to: '2026-03-01' },
+        { label: 'Bengaluru', from: '2026-03-01', current: true },
+      ],
+    },
+  ]}
+  caption="Rows from my DuckDB 2.0.0 run. The hatched bar is drawn backwards: the row ends before it starts."
+/>
+
+Look at the Bengaluru row: valid from March 1, valid to February 10. It ends before it starts, so no date can ever land on it. And the "current" city is now Mumbai, which she left in March. Every order since March gets credited to the wrong city.
+
+## Bug 4: the boundary day
+
+This one isn't in the load. It's in the query that reads the table.
+
+To find the city at order time, people write:
+
+```sql
+JOIN dim_customer d
+  ON o.customer_id = d.customer_id
+ AND o.order_date BETWEEN d.valid_from AND d.valid_to
+```
+
+`BETWEEN` includes both ends. Our table stores `valid_to` as the day the next version starts. So on March 1, the day she moved, both rows match. Try it:
+
+<VersionTimeline
+  id="boundary"
+  title="Which row does an order join to?"
+  hint="Drag the event date and switch the predicate. Start on Mar 1, the day she moved."
+  start="2026-01-01"
+  end="2026-07-01"
+  probe={{ date: '2026-03-01', mode: 'between' }}
+  lanes={[
+    {
+      name: 'Customer 42',
+      versions: [
+        { label: 'Pune', from: '2026-01-01', to: '2026-03-01' },
+        { label: 'Bengaluru', from: '2026-03-01', current: true },
+      ],
+    },
+  ]}
+/>
+
+In my run I had 3 orders worth 230 in total. One of them, for 100, was placed by customer 42 on March 1. The `BETWEEN` join returned 330. That order was counted in Pune and in Bengaluru.
+
+Neither convention is wrong on its own. The bug is mixing them:
+
+- **Half-open** (what this post uses): `valid_to` is the next version's start, and you join with `>= valid_from AND < valid_to`.
+- **Closed**: `valid_to` is the day before the next version starts, and `BETWEEN` is correct. DuckDB's merge guide does it this way.
+
+My opinion: pick half-open. It also works with timestamps, and it never needs a "minus 1 day" that breaks when 2 changes land on the same day.
+
+<Callout label="The rule behind all 4 bugs">
+For each key, any point in time should match exactly one version, and it should be the right one. Bug 1 keeps one row per date but the wrong one. Bugs 2 and 3 make some dates match 2 rows, or match the wrong row. Bug 4 makes the join itself match 2.
+</Callout>
+
+## The fix: history is a log, versions are a window function
+
+Here's the shift that made all 4 bugs go away in my run. Stop thinking of Type 2 as "update the old row, insert the new one". Think of it as 2 tables:
+
+1. `customer_changes`: an append-only log of every change you've ever received, with its `effective_date` and when you loaded it.
+2. `dim_customer`: derived from the log. Each version's `valid_to` is simply the next version's `valid_from`.
+
+"The next row's value" is exactly what `LEAD` does. Here's the rebuild, run for the keys in today's batch:
+
+```sql
+BEGIN;
+DELETE FROM dim_customer WHERE customer_id IN (SELECT customer_id FROM batch_keys);
+
+INSERT INTO dim_customer
+WITH latest AS (      -- one row per key per date, so resends can't duplicate
+  SELECT * FROM customer_changes
+  WHERE customer_id IN (SELECT customer_id FROM batch_keys)
+  QUALIFY row_number() OVER (
+    PARTITION BY customer_id, effective_date ORDER BY loaded_at DESC) = 1
+),
+flagged AS (          -- compare each row to the previous one, NULL-safe
+  SELECT *, row_number() OVER w AS rn, lag(city) OVER w AS prev_city
+  FROM latest WINDOW w AS (PARTITION BY customer_id ORDER BY effective_date)
+),
+changes AS (
+  SELECT * FROM flagged WHERE rn = 1 OR city IS DISTINCT FROM prev_city
+)
+SELECT customer_id, city, effective_date,
+       coalesce(lead(effective_date) OVER w, DATE '9999-12-31'),
+       lead(effective_date) OVER w IS NULL
+FROM changes WINDOW w AS (PARTITION BY customer_id ORDER BY effective_date);
+COMMIT;
+```
+
+<Flow
+  title="Type 2 as a derived table"
+  steps={[
+    { label: 'Append the batch to the change log' },
+    { label: 'Keep 1 row per key per date', note: 'latest load wins' },
+    { label: 'Drop rows that change nothing', note: 'IS DISTINCT FROM vs the previous row' },
+    { label: 'valid_to = LEAD(valid_from)', note: 'sorted by effective date, not arrival', tone: 'signal' },
+    { label: 'Replace those keys in one transaction' },
+  ]}
+/>
+
+Why each bug disappears:
+
+- **Bug 1:** the comparison is `IS DISTINCT FROM`, so NULL to Lisbon is a change.
+- **Bug 2:** Denver and Boston are 2 rows in the log. `LEAD` gives Denver an end date, and only the last row is current.
+- **Bug 3:** versions are ordered by `effective_date`, not by arrival. A late row slots into the middle and its neighbors adjust.
+- **Bug 4:** the table is consistently half-open, and you join with `>=` and `<`.
+
+I loaded the same 4 batches both ways and ran 3 checks on the result:
+
+<Matrix
+  title="Health checks after the same 4 batches"
+  columns={['Check', 'Textbook load', 'Change log + LEAD']}
+  rows={[
+    ['Keys with more than 1 current row', '1', '0'],
+    ['Rows that end on or before they start', '1', '0'],
+    ['Rows that overlap the next version', '3', '0'],
+    ['Revenue, joined with >= and < (truth: 230)', '360', '230'],
+    ['Rerun the last batch: table unchanged?', 'yes', 'yes'],
+  ]}
+  caption="DuckDB 2.0.0, 3 customers, 4 batches. Setup in How to reproduce. Even with the right join, the broken table counts 2 orders twice."
+/>
+
+About reruns: rerunning a batch with one change per key did nothing in my test, which is what you want. Rerunning the batch with Denver and Boston did not. Both current rows got expired, both were inserted again, and customer 7 went from 3 rows to 5, including a second Boston row that ends before it starts. The fixed load came out identical on every rerun.
+
+The trade-offs, and this part is my opinion. You need a change log with a trustworthy effective date from the source, like a CDC timestamp or an `updated_at`. Each run reads the full history of the keys it touches, which is cheap for most dimensions and worth measuring for very busy keys. And it doesn't handle hard deletes from the source, which need their own rule.
+
+## In the interview
+
+**How it's asked.** "Design a customer dimension that keeps history." Or "What's the difference between SCD Type 1 and Type 2?" Sometimes as live SQL: "Write the load for this staging table."
+
+**What a strong answer covers:**
+
+- Type 1 overwrites, Type 2 adds a row, Type 3 adds a column. Say which business question needs Type 2.
+- The columns: business key, surrogate key, `valid_from`, `valid_to`, `is_current`.
+- The invariant: one version per key per point in time, exactly one current row per key.
+- The edge cases, unprompted: NULL-safe change detection, several changes per key in one batch, late-arriving changes, and the interval convention for joins.
+- How you'd test it: the 3 health checks in the cheat sheet, run after every load.
+
+**Likely follow-ups:**
+
+- "How do facts find the right version?" Usually at fact-load time: look up the version valid on the event date and store its surrogate key on the fact row. The interval join happens once, during loading.
+- "Then what happens to those facts when a late change splits a version?" With an in-place load, facts already loaded keep pointing at the old version's surrogate key. With the rebuild in this post it's worse: the key's rows are deleted and inserted again, so new surrogate keys would orphan every fact for that customer. Make the surrogate key deterministic (for example a hash of `customer_id` and `valid_from`), or re-key the affected facts. Say the trade-off out loud.
+- "How does dbt do it?" [dbt snapshots](https://docs.getdbt.com/docs/build/snapshots) add `dbt_valid_from` and `dbt_valid_to`. `dbt_valid_to` is NULL for current rows by default, and since dbt 1.9 a `hard_deletes` setting decides what happens when a row disappears from the source. The docs also warn that the unique key has to be unique.
+- "What if the source sends deletes?" Close the current row, or insert a deleted marker version. Pick one and say why.
+
+## Cheat sheet
+
+<Matrix
+  title="SCD Type 2 on one screen"
+  columns={['Symptom', 'Likely cause', 'Fix']}
+  rows={[
+    ['A change never shows up', '<> against a NULL', 'IS DISTINCT FROM, or NOT (a <=> b) in Spark'],
+    ['2 current rows for one key', 'Several changes for one key in one batch', 'Order the batch by effective date and derive valid_to with LEAD'],
+    ['MERGE fails: same target row matched more than once', 'Same cause, louder', 'Same fix'],
+    ['A row ends before it starts', 'Late-arriving change treated as newest', 'Rebuild the key\'s versions sorted by effective date'],
+    ['An event counted twice on a change day', 'BETWEEN on half-open dates', '>= valid_from AND < valid_to'],
+    ['A change missed when hashing columns', 'concat_ws skips NULLs, so (NULL, x) and (x, NULL) hash the same', 'Compare columns directly, or coalesce NULLs to a marker before hashing'],
+  ]}
+/>
+
+The 3 checks I'd run after every load:
+
+```sql
+-- 1. more than one current row per key (expect 0 rows)
+SELECT customer_id FROM dim_customer WHERE is_current
+GROUP BY customer_id HAVING count(*) > 1;
+
+-- 2. rows that end on or before they start (expect 0 rows)
+SELECT * FROM dim_customer WHERE valid_to <= valid_from;
+
+-- 3. overlapping versions (expect 0 rows)
+SELECT * FROM (
+  SELECT *, lead(valid_from) OVER (PARTITION BY customer_id ORDER BY valid_from) AS next_from
+  FROM dim_customer
+) WHERE next_from < valid_to;
+```
+
+## What I learned
+
+Running it beat reading about it. I expected reruns to be the textbook load's weak spot. On their own they weren't. The damage came from ordinary batches: a NULL, 2 changes at once, a late row. Reruns only hurt once a batch already had 2 changes for a key. None of it raised an error.
+
+And the cleanest fix wasn't a smarter `UPDATE`. It was keeping the raw changes and treating the dimension as something you derive from them.
+
+## How to reproduce
+
+DuckDB 2.0.0 from pip, Python 3.13, in-memory database.
+
+- **Batch 1** (Jan 1): customer 42 Pune, customer 7 Austin, customer 9 NULL.
+- **Batch 2** (Mar 1): customer 42 Bengaluru, customer 9 Lisbon.
+- **Batch 3**: customer 7 Denver (May 1) and Boston (May 20) in the same batch.
+- **Batch 4**: customer 42 Mumbai, effective Feb 10, loaded last.
+- **Orders**: 100 by customer 42 on Mar 1, 50 by customer 42 on Feb 15, 80 by customer 7 on Jun 1. Truth: 230.
+
+The textbook load is the 2 statements above, run per batch. The `BETWEEN` total of 330 was measured right after batch 2, while that table was still clean. The 360 in the health checks is the `>=` and `<` join on its final table. The fixed load appends each batch to `customer_changes` with a `loaded_at` timestamp, then runs the rebuild for the batch's keys. The rerun checks load the last batch a second time and compare the full table before and after. Batch 2 was also loaded twice in the textbook run, with no change. The batch 3 rerun (3 rows to 5) and the `MERGE` error were run on a separate small table holding only Austin, then Denver and Boston. The hashing row in the cheat sheet comes from `SELECT concat_ws('|', NULL, 'x'), concat_ws('|', 'x', NULL)`, which returns `'x'` twice.
+
+This is a tiny, hand-made data set built to trigger each case. It shows the behavior, not how often it happens in real pipelines.
+
+## References
+
+- [Kimball Group: dimensional modeling techniques (SCD types 0 to 7)](https://www.kimballgroup.com/techniques/dimensional-modeling-techniques/)
+- [Kimball Group: Type 2, add new row](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/type-2/)
+- [DuckDB 2.0: comparison operators and IS DISTINCT FROM](https://duckdb.org/docs/2.0/sql/expressions/comparison_operators.html)
+- [DuckDB 2.0: MERGE INTO, multiple matching source rows](https://duckdb.org/docs/2.0/sql/statements/merge_into)
+- [DuckDB 2.0: MERGE statement guide with an SCD Type 2 example](https://duckdb.org/docs/2.0/guides/sql_features/merge)
+- [Spark SQL: NULL semantics and the null-safe equal operator](https://spark.apache.org/docs/latest/sql-ref-null-semantics.html)
+- [Databricks: MERGE INTO and multiple source rows](https://docs.databricks.com/aws/en/sql/language-manual/delta-merge-into.html)
+- [dbt: snapshots](https://docs.getdbt.com/docs/build/snapshots)

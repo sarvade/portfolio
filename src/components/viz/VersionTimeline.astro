@@ -1,0 +1,666 @@
+---
+/*
+  The versions of one key in a Type 2 history, drawn as bars on a date axis.
+  One lane per table (for example a broken load next to a fixed one), one row
+  per version. Rows that break point-in-time joins are flagged: overlapping
+  versions, rows that end before they start, and more than one current row.
+
+  With `probe`, it becomes interactive: drag a date and pick a join predicate
+  (BETWEEN or half-open) to see which rows an event on that date joins to.
+
+  Real HTML: each lane is an ordered list whose items say the label, the range
+  and the flags in words, so it reads without CSS or JS. Without JS the probe
+  shows its default date and the controls stay disabled. Bars grow in once
+  when scrolled into view, skipped with reduced motion. Logic lives in
+  version-timeline.ts.
+*/
+import {
+  FLAG_TEXT,
+  MODE_SQL,
+  dayNumber,
+  describe,
+  matching,
+  monthTicks,
+  placeLane,
+  shortDate,
+  type Lane,
+  type Mode,
+} from './version-timeline';
+
+interface Props {
+  title: string;
+  /** Axis start and end, ISO dates. */
+  start: string;
+  end: string;
+  lanes: Lane[];
+  /** Turn on the date probe, starting at this date and predicate. */
+  probe?: { date: string; mode?: Mode };
+  /** Prefix for input names, so two widgets on one page stay independent. */
+  id?: string;
+  hint?: string;
+  caption?: string;
+}
+
+const { title, start, end, lanes, probe, id = 'vt', hint, caption } = Astro.props;
+
+const ticks = monthTicks(start, end);
+const placed = lanes.map((lane) => placeLane(lane, start, end));
+const span = dayNumber(end) - dayNumber(start);
+const probeMode: Mode = probe?.mode ?? 'between';
+const probeOffset = probe ? dayNumber(probe.date) - dayNumber(start) : 0;
+const probeLeft = (probeOffset / span) * 100;
+const hits = probe ? lanes.map((lane) => matching(lane, probe.date, probeMode)) : [];
+const modes: [Mode, string][] = [
+  ['between', 'BETWEEN'],
+  ['halfopen', '>= and <'],
+];
+---
+
+<figure
+  class:list={['vt', { 'has-probe': probe }]}
+  data-vt
+  data-prefix={id}
+  data-start={start}
+  data-end={end}
+  data-lanes={JSON.stringify(lanes)}
+  style={`--probe: ${probeLeft.toFixed(2)}%`}
+>
+  <p class="vt-head">
+    {probe && <span class="vt-kicker">Interactive</span>}
+    <span class="vt-title">{title}</span>
+  </p>
+  {hint && <p class="vt-hint">{hint}</p>}
+
+  {
+    probe && (
+      <div class="vt-controls">
+        <fieldset class="vt-field">
+          <legend class="vt-label">Join predicate</legend>
+          <div class="vt-seg">
+            {modes.map(([value, label]) => (
+              <label>
+                <input type="radio" name={`${id}-mode`} value={value} checked={probeMode === value} disabled />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div class="vt-field">
+          <label class="vt-label" for={`${id}-date`}>
+            Event date: <output data-date-out for={`${id}-date`}>{shortDate(probe.date)}</output>
+          </label>
+          <input
+            class="vt-range"
+            id={`${id}-date`}
+            type="range"
+            min="0"
+            max={span}
+            step="1"
+            value={probeOffset}
+            aria-valuetext={shortDate(probe.date)}
+            disabled
+          />
+        </div>
+        <p class="vt-sql">
+          <code data-sql>{MODE_SQL[probeMode]}</code>
+        </p>
+      </div>
+    )
+  }
+
+  <div class="vt-lanes">
+    {
+      lanes.map((lane, l) => (
+        <section class="vt-lane" aria-label={`${title}: ${lane.name}`}>
+          <p class="vt-lane-name">{lane.name}</p>
+          {lane.note && <p class="vt-lane-note">{lane.note}</p>}
+          <div class="vt-axis" aria-hidden="true">
+            <span />
+            <span class="vt-ticks">
+              {ticks.map((t, i) => (
+                <span class:list={['vt-tick', { 'vt-tick-odd': i % 2 === 1 }]} style={`--x: ${t.left}%`}>
+                  {t.label}
+                </span>
+              ))}
+            </span>
+          </div>
+          <ol class="vt-rows" data-lane={l}>
+            {placed[l].map((v, i) => (
+              <li
+                class:list={[
+                  'vt-row',
+                  {
+                    'is-flagged': v.flags.length > 0,
+                    'is-current': v.current,
+                    'is-open': v.open,
+                    'is-backwards': v.backwards,
+                  },
+                ]}
+                data-row={i}
+                data-hit={probe ? (hits[l].includes(i) ? 'yes' : 'no') : undefined}
+                style={`--i: ${i}`}
+              >
+                <span class="vt-text">
+                  <span class="vt-name">{v.label}</span>{' '}
+                  <span class="vt-range-text">{`${shortDate(v.from)} to ${shortDate(v.to)}${v.current ? ', current' : ''}`}</span>
+                  {v.flags.map((f) => (
+                    <>
+                      {' '}
+                      <span class="vt-flag">{FLAG_TEXT[f]}</span>
+                    </>
+                  ))}
+                  {probe && (
+                    <>
+                      {' '}
+                      <span class="vt-match" data-match hidden={!hits[l].includes(i)}>
+                        joins
+                      </span>
+                    </>
+                  )}
+                </span>
+                <span class="vt-track" aria-hidden="true">
+                  <span class="vt-bar" style={`--l: ${v.left}%; --w: ${v.width}%`} />
+                </span>
+              </li>
+            ))}
+          </ol>
+          {probe && (
+            <p class="vt-result" data-result={l} aria-live="polite">
+              {describe(lane, probe.date, probeMode)}
+            </p>
+          )}
+        </section>
+      ))
+    }
+  </div>
+
+  <ul class="vt-legend">
+    <li><span class="vt-swatch vt-swatch-current" aria-hidden="true"></span>Current row</li>
+    <li><span class="vt-swatch" aria-hidden="true"></span>Expired row</li>
+    <li><span class="vt-swatch vt-swatch-flag" aria-hidden="true"></span>Breaks point-in-time joins</li>
+    {probe && <li><span class="vt-swatch vt-swatch-probe" aria-hidden="true"></span>Event date</li>}
+  </ul>
+
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import { MODE_SQL, describe, isoFromDay, dayNumber, matching, shortDate, type Lane, type Mode } from './version-timeline';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-vt]')) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    if (root.classList.contains('has-probe')) {
+      const prefix = root.dataset.prefix ?? 'vt';
+      const lanes = JSON.parse(root.dataset.lanes ?? '[]') as Lane[];
+      const startDay = dayNumber(root.dataset.start ?? '');
+      const span = dayNumber(root.dataset.end ?? '') - startDay;
+      const range = root.querySelector<HTMLInputElement>('input[type="range"]');
+      const out = root.querySelector<HTMLElement>('[data-date-out]');
+      const sql = root.querySelector<HTMLElement>('[data-sql]');
+
+      const update = () => {
+        const mode = (root.querySelector<HTMLInputElement>(`input[name="${prefix}-mode"]:checked`)?.value ??
+          'between') as Mode;
+        const offset = Number(range?.value ?? 0);
+        const date = isoFromDay(startDay + offset);
+        root.style.setProperty('--probe', `${((offset / span) * 100).toFixed(2)}%`);
+        if (out) out.textContent = shortDate(date);
+        if (range) range.setAttribute('aria-valuetext', shortDate(date));
+        if (sql) sql.textContent = MODE_SQL[mode];
+        lanes.forEach((lane, l) => {
+          const hit = matching(lane, date, mode);
+          root.querySelectorAll<HTMLElement>(`[data-lane="${l}"] > [data-row]`).forEach((row, i) => {
+            row.dataset.hit = hit.includes(i) ? 'yes' : 'no';
+            const badge = row.querySelector<HTMLElement>('[data-match]');
+            if (badge) badge.hidden = !hit.includes(i);
+          });
+          const result = root.querySelector<HTMLElement>(`[data-result="${l}"]`);
+          if (result) result.textContent = describe(lane, date, mode);
+        });
+      };
+
+      for (const input of root.querySelectorAll<HTMLInputElement>('input')) {
+        input.disabled = false;
+        input.addEventListener(input.type === 'range' ? 'input' : 'change', update);
+      }
+      root.classList.add('is-live');
+      update();
+    }
+
+    if (!reduce.matches && 'IntersectionObserver' in window) {
+      root.classList.add('is-armed');
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            root.classList.add('is-in');
+            io.disconnect();
+          }
+        },
+        { threshold: 0.2 },
+      );
+      io.observe(root);
+    }
+  }
+</script>
+
+<style>
+  .vt {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .vt code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .vt-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .vt-kicker {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .vt-title {
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .vt-hint {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Controls */
+  .vt-controls {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  .vt-field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .vt-label {
+    float: left;
+    padding: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .vt-label output {
+    color: var(--signal);
+    font-family: var(--font-mono);
+  }
+
+  .vt-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-self: start;
+    max-width: 100%;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .vt-seg label {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+  }
+
+  .vt-seg label + label {
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .vt-seg input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .vt-seg span {
+    flex: 1 1 auto;
+    padding: 0.35rem 0.8rem;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 550;
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  .vt-seg input:checked + span {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  .vt-seg input:focus-visible + span {
+    outline: 2px solid var(--signal-strong);
+    outline-offset: -4px;
+  }
+
+  .vt-seg input:disabled {
+    cursor: default;
+  }
+
+  .vt-range {
+    width: 100%;
+    max-width: 28rem;
+    accent-color: var(--signal);
+  }
+
+  .vt-range:disabled {
+    opacity: 0.6;
+  }
+
+  .vt-sql {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+
+  /* Lanes */
+  .vt-lanes {
+    display: grid;
+    gap: var(--space-5);
+    margin-top: var(--space-5);
+  }
+
+  .vt-lane {
+    min-width: 0;
+  }
+
+  .vt-lane-name {
+    color: var(--text);
+    font-weight: 650;
+  }
+
+  .vt-lane-note {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .vt-axis,
+  .vt-row {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 34%) minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: center;
+  }
+
+  .vt-axis {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+  }
+
+  .vt-ticks {
+    position: relative;
+    display: block;
+    height: 1.2em;
+    margin-inline: 0.6rem;
+  }
+
+  .vt-tick {
+    position: absolute;
+    left: var(--x);
+    translate: -50% 0;
+    white-space: nowrap;
+  }
+
+  .vt-rows {
+    margin: var(--space-1) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .vt-row {
+    padding-block: 0.4rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  .vt-text {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.4rem;
+    min-width: 0;
+    line-height: 1.3;
+  }
+
+  .vt-name {
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  .vt-range-text {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+  }
+
+  .vt-flag,
+  .vt-match {
+    padding: 0 0.35rem;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.5;
+  }
+
+  .vt-flag {
+    border: 1px solid var(--caution);
+    color: var(--caution);
+  }
+
+  .vt-match {
+    background: var(--signal);
+    color: var(--on-signal);
+    font-weight: 600;
+  }
+
+  .vt-match[hidden] {
+    display: none;
+  }
+
+  .vt-track {
+    position: relative;
+    display: block;
+    height: 1.1rem;
+    margin-inline: 0.6rem;
+  }
+
+  /* The probe: one vertical tick per row, at the same x, reads as a line */
+  .has-probe .vt-track::before,
+  .has-probe .vt-ticks::before {
+    content: '';
+    position: absolute;
+    top: -0.45rem;
+    bottom: -0.45rem;
+    left: var(--probe);
+    width: 2px;
+    margin-left: -1px;
+    background: var(--signal);
+    z-index: 1;
+  }
+
+  .has-probe .vt-ticks::before {
+    top: 0;
+    bottom: -0.3rem;
+  }
+
+  .vt-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--l);
+    width: var(--w);
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    background: var(--surface-2);
+    transform-origin: left center;
+  }
+
+  .is-current .vt-bar {
+    border-color: var(--signal);
+    background: color-mix(in srgb, var(--signal) 35%, transparent);
+  }
+
+  .is-open .vt-bar {
+    border-right-style: dashed;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .is-flagged .vt-bar {
+    border: 2px dashed var(--caution);
+    background: color-mix(in srgb, var(--caution) 18%, transparent);
+  }
+
+  .is-backwards .vt-bar {
+    background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--caution) 45%, transparent) 0 3px,
+      transparent 3px 7px
+    );
+    transform-origin: right center;
+  }
+
+  .vt-row[data-hit='yes'] .vt-bar {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 4px var(--signal);
+  }
+
+  .vt-result {
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--signal);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: var(--text-sm);
+  }
+
+  /* Legend */
+  .vt-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    list-style: none;
+  }
+
+  .vt-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .vt-swatch {
+    display: inline-block;
+    width: 1.4rem;
+    height: 0.7rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .vt-swatch-current {
+    border-color: var(--signal);
+    background: color-mix(in srgb, var(--signal) 35%, transparent);
+  }
+
+  .vt-swatch-flag {
+    border: 2px dashed var(--caution);
+    background: color-mix(in srgb, var(--caution) 18%, transparent);
+  }
+
+  .vt-swatch-probe {
+    width: 2px;
+    height: 0.9rem;
+    border: 0;
+    background: var(--signal);
+  }
+
+  .vt figcaption {
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Narrow figures: fewer tick labels, label column above the bar */
+  @container (max-width: 25rem) {
+    .vt-tick-odd {
+      visibility: hidden;
+    }
+  }
+
+  @container (max-width: 20rem) {
+    .vt-axis,
+    .vt-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.3rem;
+    }
+
+    .vt-axis > span:first-child {
+      display: none;
+    }
+  }
+
+  /* Bars grow in, row by row, the first time the figure scrolls into view */
+  .vt.is-armed .vt-bar {
+    transition: transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: calc(var(--i, 0) * 120ms);
+  }
+
+  .vt.is-armed:not(.is-in) .vt-bar {
+    transform: scaleX(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vt.is-armed .vt-bar {
+      transition: none;
+    }
+
+    .vt.is-armed:not(.is-in) .vt-bar {
+      transform: none;
+    }
+  }
+</style>
