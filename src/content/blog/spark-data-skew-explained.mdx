@@ -1,0 +1,265 @@
+---
+title: 'One task, 9 million rows: data skew in Spark, explained in 10 minutes'
+description: Half the orders belong to one customer, so one Spark task does the work. What skew is, how AQE splits it, why salting can backfire, and the interview answer.
+pubDate: 2026-11-04T16:00:00Z
+draft: true
+tags:
+  - spark
+  - performance
+  - interviews
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+import Compare from '../../components/viz/Compare.astro';
+import Callout from '../../components/viz/Callout.astro';
+import SkewCheck from '../../components/viz/SkewCheck.astro';
+
+This is one of the most common Spark interview questions, in one form or another:
+
+> Your job sits at 199 of 200 tasks for 40 minutes. Every other task finished in under a minute. What's going on, and what do you do?
+
+The answer is almost always **data skew**. One key has far more rows than the others, and the one task that gets that key does most of the work while the rest of the cluster waits.
+
+The usual fixes are "turn on AQE" and "salt the key". I ran both on a small, deliberately skewed join to see what they actually do. AQE's skew join did nothing at its default settings. With lower settings it split the hot partition, but into fewer pieces than I expected, for a reason I hadn't known about. And salting made the job slower.
+
+In this post: what skew is in plain words, how to spot it, how AQE detects and splits it (with a widget you can play with), when salting helps, why most aggregations shrug it off, and how to answer the question in an interview.
+
+## The running example
+
+One join, used for the whole post:
+
+- `orders`: 16 million rows of `cust_id` and `amount`.
+- `customers`: 100,000 rows of `cust_id` and `tier`.
+- The twist: **half of all orders belong to customer 0.** Think of a marketplace's own house account, a guest checkout that writes a default ID, or a bot. The other 8 million orders are spread evenly over the remaining 99,999 customers.
+
+```python
+orders = spark.range(16_000_000).select(
+    F.when(F.col("id") % 2 == 0, F.lit(0))                 # half the rows: customer 0
+     .otherwise(F.col("id") % 99_999 + 1).alias("cust_id"),
+    F.round(F.rand(7) * 1000, 2).alias("amount"))
+customers = spark.range(100_000).select(
+    F.col("id").alias("cust_id"), (F.col("id") % 5).alias("tier"))
+
+result = orders.join(customers, "cust_id")
+```
+
+To keep the numbers small, I used 8 shuffle partitions and turned broadcast joins off, so Spark has to do a sort-merge join. (If you want the background on join strategies, I covered that in [how Spark picks a join](../spark-join-strategies/).)
+
+## Skew in plain words
+
+For a sort-merge join, Spark has to bring rows with the same `cust_id` together. It does that with a **shuffle**: hash each row's key, take the hash modulo the number of partitions, and send the row to that partition.
+
+That's fair to keys, not to rows. Every key goes to exactly one partition. So if one key owns half the rows, one partition gets half the rows.
+
+<Flow
+  title="Why one partition gets half the data"
+  steps={[
+    { label: 'Hash cust_id', note: 'same key, same hash, every time' },
+    { label: 'hash mod 8', note: 'picks 1 of 8 partitions' },
+    { label: 'All 8M rows of customer 0', note: 'land in the same partition', tone: 'caution' },
+    { label: 'One task reads that partition', note: 'the stage ends when it does', tone: 'caution' },
+  ]}
+/>
+
+Quick math. 8 million spread-out orders over 8 partitions is about 1 million each. The partition that also gets customer 0 has 1 million plus 8 million: 9 million rows.
+
+That's what I measured. 7 partitions held between 992,335 and 1,014,252 orders. One held 8,998,807.
+
+## What it looks like when it runs
+
+A stage in Spark is done when its last task is done. So the cost of skew isn't the total work. It's the wait for the one slow task while the other cores sit idle.
+
+Here is the shuffle data each of the 8 join tasks read, with AQE off:
+
+<Compare
+  title="Shuffle read per join task, AQE off"
+  rows={[
+    { label: 'Typical task (7 of them)', value: 10.7, display: '10.6 to 10.9 MB', tone: 'after' },
+    { label: 'The task with customer 0', value: 73.7, display: '73.7 MB', tone: 'before' },
+  ]}
+  caption="Measured: PySpark 4.3.0, local mode, 8 shuffle partitions. From the Spark UI REST API task list for the join stage."
+/>
+
+And the task times told the same story. The typical join task ran for about 0.9 seconds. The hot one ran for about 3.7 seconds. (Roughly, anyway: with more tasks than cores, some of that time is tasks sharing a CPU.)
+
+A caveat on timing. My sandbox has 2 CPU cores, so the 8 tasks queued up anyway. The whole query took 8.5 to 9.6 seconds (medians) in every case except salting, which took 13.2. On a real cluster with a core free for every task, the stage takes as long as its slowest task. That's where a 4x slower task becomes a 4x slower stage.
+
+**How to spot it in the Spark UI.** Open the stage, look at the task summary. If the max of Duration or Shuffle Read Size is many times the median, you have skew. If they're close, your problem is something else.
+
+## How AQE handles it
+
+Adaptive Query Execution (AQE) re-plans a query between stages, using the real sizes of the shuffle output. One of its rules is the skew join. AQE has been [on by default since Spark 3.2](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution), and the skew join rule does 2 things.
+
+**1. Detect.** After the shuffle, Spark looks at each partition's size. A partition is skewed if it is bigger than *both*:
+
+- `spark.sql.adaptive.skewJoin.skewedPartitionFactor` (default 5) times the median partition size, and
+- `spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes` (default 256 MB).
+
+**2. Split.** Spark cuts the skewed partition into smaller pieces and gives each piece its own task. Each piece is joined against a full copy of the matching partition from the other side. That's safe for an inner join: every order still meets every customer row it could match.
+
+<Flow
+  title="AQE skew join on the hot partition"
+  steps={[
+    { label: 'Measure every partition', note: 'after the shuffle has run' },
+    { label: 'Hot one is > 5 x median and > 256 MB?', tone: 'caution' },
+    { label: 'Cut it into pieces', note: 'aims for the advisory size or the average normal partition, whichever is bigger' },
+    { label: 'Copy the matching customers partition', note: 'once per piece', tone: 'signal' },
+    { label: 'Run one task per piece', tone: 'signal' },
+  ]}
+/>
+
+Now the worked numbers. The median was about 10.7 MB, so 5 x median is about 54 MB. The hot partition was 73.7 MB. Bigger than 54 MB, yes. Bigger than 256 MB, no.
+
+So at the default settings, **AQE didn't touch it.** The final plan said `SortMergeJoin Inner`, and the hot task still read 73.7 MB. AQE did coalesce the small partitions (8 tasks became 4), which is a different rule.
+
+My read on the 256 MB floor: it's there for a reason. On a real cluster, splitting a 70 MB partition is rarely worth the extra tasks. My data is just small. So for the demo I lowered the threshold to 16 MB and the advisory size to 8 MB. Now the plan said `SortMergeJoin(skew=true)`, with an `AQEShuffleRead ... skewed` node on the orders side.
+
+### The part that surprised me
+
+I expected Spark to cut 73.7 MB into pieces of about 10 MB. It cut it into **4 pieces of 18.5 MB**.
+
+The reason is in [the source](https://github.com/apache/spark/blob/v4.3.0/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/ShufflePartitionsUtil.scala#L431-L460). Spark doesn't cut a partition at arbitrary row boundaries. It cuts along **map outputs**: the blocks each upstream task wrote for that partition. My `orders` came from 4 tasks, so there were only 4 blocks to group. 4 blocks, at most 4 pieces.
+
+So I re-ran with `orders` built from 16 tasks. Same keys, same settings. This time: **8 pieces of 9.3 MB**, and the slowest join task dropped to about 1.2 seconds.
+
+Try it yourself. The bars are the measured tasks, and the rules are ported from the Spark 4.3.0 source:
+
+<SkewCheck caption="Measured partition sizes from my run; the split rules are Spark 4.3.0's. Spark decides on rounded-up size estimates (up to 10% high), which the widget models. Every combination in the table under the widget was also run for real, and the widget matches it to within 0.1 MB." />
+
+<Callout label="The one sentence to remember">
+AQE splits a partition only if it is bigger than both 5 x the median and 256 MB (the defaults), and into at most as many pieces as there are map outputs feeding it.
+</Callout>
+
+### Which joins it can split
+
+Splitting one side means copying the other side's partition. That only works if the copied side's unmatched rows don't need to be output, or you'd output them several times. So the join type decides which side can be split. This comes from `canSplitLeftSide` and `canSplitRightSide` in [OptimizeSkewedJoin](https://github.com/apache/spark/blob/v4.3.0/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala#L85-L92):
+
+<Matrix
+  title="Which side AQE can split, by join type (Spark 4.3.0)"
+  columns={['Join type', 'Left side', 'Right side']}
+  rows={[
+    ['Inner, cross', 'Yes', 'Yes'],
+    ['Left outer, left semi, left anti', 'Yes', 'No'],
+    ['Right outer', 'No', 'Yes'],
+    ['Full outer', 'No', 'No'],
+  ]}
+  chips={{ Yes: 'signal', No: 'caution' }}
+  caption="Applies to sort-merge and shuffled hash joins. A broadcast hash join usually has no shuffle on the big side, so there is usually nothing to split."
+/>
+
+So a full outer join on a skewed key gets no help from AQE. That's one of the places where you still need to fix it yourself.
+
+## Salting, and why it made things worse here
+
+Salting is the manual fix. You add a random number, the **salt**, to the hot side's key, and copy the other side once per salt value. Now customer 0's rows are spread over `(0, 0)`, `(0, 1)` and so on.
+
+```python
+SALT = 8
+salted_orders = orders.withColumn("salt", (F.rand(42) * SALT).cast("int"))
+salted_customers = customers.crossJoin(
+    spark.range(SALT).select(F.col("id").cast("int").alias("salt")))
+salted = salted_orders.join(salted_customers, ["cust_id", "salt"])
+```
+
+Here is what it did, with AQE off so the salt was the only fix:
+
+<Compare
+  title="Slowest join task, median of 3 runs"
+  rows={[
+    { label: 'No fix (AQE off)', value: 3.69, display: '3.7 s', tone: 'before' },
+    { label: 'AQE at defaults (not triggered)', value: 4.79, display: '4.8 s', tone: 'before' },
+    { label: 'Salt x 8, AQE off', value: 6.32, display: '6.3 s', tone: 'before' },
+    { label: 'AQE skew join, 4 map tasks', value: 1.96, display: '2.0 s', tone: 'after' },
+    { label: 'AQE skew join, 16 map tasks', value: 1.16, display: '1.2 s', tone: 'after' },
+  ]}
+  caption="Measured: PySpark 4.3.0, local[4] on a 2 vCPU sandbox, 8 shuffle partitions, noop sink. AQE runs used a 16 MB threshold and 8 MB advisory size. At defaults, AQE coalesced 8 tasks into 4, so its tasks were bigger."
+/>
+
+Two things kept it from helping, and both are worth knowing. (Part of the slowdown is also my 2 cores: salting made every task bigger, and they competed for CPU. I didn't separate the two.)
+
+**Collisions.** Salting spreads customer 0 over 8 new keys, but those 8 keys still go through `hash mod 8`. Some of them landed in the same partition. The biggest salted task read 39 MB, while an even spread would have been about 22 MB per task.
+
+**The copy isn't free.** Every customer row is copied 8 times, for every customer, not just the hot one. Here that turned 100,000 rows into 800,000 and gave every task more to sort.
+
+Salting still has its place: joins AQE can't split, older Spark versions, or a hot key so big you want control. Two habits make it work better. Salt only the hot keys, not all of them, and use a salt count that's small next to the number of partitions.
+
+One trap: don't use this recipe on a full outer join. Every copy of a customer that matches nothing comes out as its own row. In a quick check on a smaller version of this data, one customer with no orders came out 8 times. For a full outer join, it's safer to join the hot keys separately and union the result.
+
+## Why most aggregations shrug it off
+
+Here's a follow-up interviewers like: "Would a `groupBy("cust_id").sum("amount")` on the same data be skewed?"
+
+Mostly no. For `sum`, `count` and friends, Spark does a **partial aggregation** before the shuffle. Each map task sums its own rows per key first, so customer 0 sends one row per map task instead of 8 million.
+
+I checked. In the plan, `partial_sum` runs before the `Exchange`. And after the shuffle, every one of the 8 tasks read between 49,616 and 50,712 rows, the hot one included.
+
+The catch is aggregates that can't shrink. `collect_list` also does a partial step, but its partial result for customer 0 is still a list of millions of values, so that task still gets a lot of bytes. And AQE's skew join rule doesn't apply to aggregations at all.
+
+## In the interview
+
+**How it's asked.** "One task takes much longer than the others. Why?" Or "How do you handle data skew in Spark?" Sometimes it's a screenshot of a stage's task summary with one huge max.
+
+**What a strong answer covers:**
+
+- Define it: a few keys own a big share of rows, and hash partitioning sends each key to one partition, so one task gets the bulk of the work.
+- Diagnose it: compare max to median for task Duration and Shuffle Read Size in the Spark UI. Then find the keys with a quick `groupBy(key).count().orderBy(desc("count"))`.
+- Check the cheap causes first: NULL or default keys (filter them or handle them apart), and whether the small side can be broadcast, which skips the shuffle completely.
+- Explain AQE's skew join: detects partitions over 5 x median and 256 MB, splits them along map outputs, copies the other side's partition per piece. Mention the join-type limits.
+- Know salting: how it works, and its cost, the copied side.
+
+**Likely follow-ups:**
+
+- "AQE is on, why is it still skewed?" The partition is under 256 MB, the join type can't be split (full outer), it's an aggregation, or there are too few map outputs to cut along.
+- "Why does a NULL key cause skew?" Every NULL hashes to the same value, so in an outer join all of them land in one partition. (Spark drops NULL keys before an inner join, since they can never match. I saw an `isnotnull` filter in my plan.)
+- "Isn't more partitions the fix?" Not for one hot key. It still lands in one partition however many you have. More partitions only help when many medium-sized keys share a partition.
+
+## Cheat sheet
+
+<Matrix
+  title="Data skew on one screen"
+  columns={['Situation', 'First thing to try']}
+  rows={[
+    ['One side fits in memory', 'Broadcast it. No shuffle, no skew'],
+    ['Hot key is NULL or a default value', 'Filter it, or process those rows separately'],
+    ['Inner or left join, Spark 3.0+ (AQE on by default from 3.2)', 'AQE skew join. Check the final plan for skew=true'],
+    ['AQE flags it but the split is coarse', 'More map tasks upstream give it more cut points'],
+    ['Partition is skewed but under 256 MB', 'Usually fine. Lower the threshold only if it hurts'],
+    ['Full outer join on a hot key', 'Join the hot keys separately and union. Plain salting duplicates unmatched rows'],
+    ['groupBy with sum or count', 'Usually fine, thanks to partial aggregation'],
+  ]}
+/>
+
+And the commands I'd keep handy:
+
+```python
+df.groupBy("cust_id").count().orderBy(F.desc("count")).show(5)   # find the hot keys
+# after a run: Spark UI, SQL tab, final plan. Look for SortMergeJoin(skew=true)
+spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "64MB")
+```
+
+## What I learned running this
+
+- The default 256 MB floor means AQE ignores skew that is ugly on a chart but cheap in absolute terms. On small data you won't see it kick in, so test with the settings lowered, like I did.
+- The number of pieces is limited by the number of upstream map outputs. I didn't know this before reading the source, and the 4 versus 16 map task runs confirmed it.
+- Spark decides on estimated block sizes, which are rounded up by up to 10% when a shuffle has 2,000 partitions or fewer ([MapStatus](https://github.com/apache/spark/blob/v4.3.0/core/src/main/scala/org/apache/spark/scheduler/MapStatus.scala#L76-L118)). My first version of the widget ignored that and got 2 configurations wrong.
+- Salting is a real trade. In my run it cost more than it saved. I'd reach for AQE and broadcasting first.
+
+## How to reproduce
+
+PySpark 4.3.0 from pip, OpenJDK 21, Python 3.13, `local[4]` on a 2 vCPU, 7 GB sandbox, `spark.driver.memory=3g`.
+
+- Settings: `spark.sql.shuffle.partitions=8`, `spark.sql.autoBroadcastJoinThreshold=-1`.
+- Data: the `orders` and `customers` code above. The 16 map task version uses `spark.range(0, 16_000_000, 1, 16)`.
+- Each case ran with `.write.format("noop").mode("overwrite").save()`, after one warm-up run, 3 rounds. I report medians.
+- Task times, shuffle read per task and the final plans came from the Spark UI REST API: `/stages/<id>/<attempt>/taskList`, `/taskSummary` and `/sql?planDescription=true`.
+
+One machine, one data shape. Treat the ratios as a demonstration, not a benchmark.
+
+## References
+
+- [Spark SQL performance tuning: adaptive query execution and optimizing skew join](https://spark.apache.org/docs/latest/sql-performance-tuning.html#optimizing-skew-join)
+- [Spark 4.3.0 source: OptimizeSkewedJoin (skew threshold, target size, which sides can split)](https://github.com/apache/spark/blob/v4.3.0/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala)
+- [Spark 4.3.0 source: ShufflePartitionsUtil (splitting along map outputs)](https://github.com/apache/spark/blob/v4.3.0/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/ShufflePartitionsUtil.scala)
+- [Spark 4.3.0 source: SQLConf defaults for the skew join settings](https://github.com/apache/spark/blob/v4.3.0/sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala)
+- [Spark 4.3.0 source: MapStatus size compression](https://github.com/apache/spark/blob/v4.3.0/core/src/main/scala/org/apache/spark/scheduler/MapStatus.scala)

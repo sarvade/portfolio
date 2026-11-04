@@ -1,0 +1,637 @@
+---
+/*
+  Interactive: does Spark's adaptive skew join flag the hot partition, and how
+  many pieces does it cut it into? Pick the skew threshold, the advisory
+  partition size and how many map tasks wrote the shuffle. The bars are the 8
+  shuffle partitions measured in the post's experiment; the marker is the skew
+  threshold; the strip underneath is the hot partition after splitting.
+
+  Rules live in skew-check.ts (ported from Spark v4.3.0) and are shared with the
+  server render, so without JavaScript this shows the default state plus a
+  table of the real runs it was checked against.
+*/
+import {
+  ADVISORY_OPTIONS,
+  DEFAULT_INPUTS,
+  FACTOR,
+  HOT_INDEX,
+  MAP_TASK_OPTIONS,
+  PARTITION_MB,
+  THRESHOLD_OPTIONS,
+  check,
+} from './skew-check';
+
+interface Props {
+  /** Prefix for input names, so two widgets on one page stay independent. */
+  id?: string;
+  title?: string;
+  caption?: string;
+}
+
+const { id = 'skc', title = 'Will AQE split the hot partition?', caption } = Astro.props;
+
+/** The bar scale in MB. Thresholds above it are drawn at the right edge with a label. */
+const SCALE = 90;
+const pct = (mb: number) => `${Math.min(100, (mb / SCALE) * 100).toFixed(1)}%`;
+const initial = check(DEFAULT_INPUTS);
+
+const fields = [
+  {
+    key: 'threshold',
+    legend: 'Skew threshold',
+    setting: 'skewedPartitionThresholdInBytes',
+    options: THRESHOLD_OPTIONS.map((v) => [String(v), `${v} MB`]),
+    value: String(DEFAULT_INPUTS.thresholdMb),
+  },
+  {
+    key: 'advisory',
+    legend: 'Advisory partition size',
+    setting: 'advisoryPartitionSizeInBytes',
+    options: ADVISORY_OPTIONS.map((v) => [String(v), `${v} MB`]),
+    value: String(DEFAULT_INPUTS.advisoryMb),
+  },
+  {
+    key: 'maps',
+    legend: 'Map tasks that wrote the orders shuffle',
+    setting: '',
+    options: MAP_TASK_OPTIONS.map((v) => [String(v), String(v)]),
+    value: String(DEFAULT_INPUTS.mapTasks),
+  },
+];
+
+/** Real runs in the post's experiment (PySpark 4.3.0, local[4], 8 shuffle partitions). */
+const MEASURED = [
+  { threshold: '256 MB', advisory: '64 MB', maps: 4, pieces: 'Not split, 73.7 MB in 1 task' },
+  { threshold: '16 MB', advisory: '8 MB', maps: 1, pieces: 'Not split, 73.7 MB in 1 task' },
+  { threshold: '16 MB', advisory: '8 MB', maps: 4, pieces: '4 x 18.5 MB' },
+  { threshold: '64 MB', advisory: '8 MB', maps: 4, pieces: '4 x 18.5 MB' },
+  { threshold: '16 MB', advisory: '8 MB', maps: 16, pieces: '8 x 9.3 MB' },
+  { threshold: '64 MB', advisory: '8 MB', maps: 16, pieces: '8 x 9.3 MB' },
+  { threshold: '16 MB', advisory: '64 MB', maps: 4, pieces: '55.3 MB + 18.5 MB' },
+  { threshold: '16 MB', advisory: '64 MB', maps: 16, pieces: '59.9 MB + 13.9 MB' },
+];
+---
+
+<figure class="skc" data-skc data-prefix={id} data-scale={SCALE}>
+  <p class="skc-head">
+    <span class="skc-kicker">Interactive</span>
+    <span class="skc-title">{title}</span>
+  </p>
+  <p class="skc-hint">
+    The 8 join tasks from my run, sorted by how much shuffle data each read. The last one holds the hot customer. A
+    partition counts as skewed when it is bigger than both the threshold setting and {FACTOR} x the median.
+  </p>
+
+  <div class="skc-controls">
+    {
+      fields.map((f) => (
+        <fieldset class="skc-field">
+          <legend class="skc-label">
+            {f.legend}
+            {f.setting && <code class="skc-setting">{f.setting}</code>}
+          </legend>
+          <div class="skc-seg">
+            {f.options.map(([value, label]) => (
+              <label>
+                <input type="radio" name={`${id}-${f.key}`} value={value} checked={f.value === value} disabled />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ))
+    }
+  </div>
+
+  <div class="skc-chart">
+    <ol class="skc-bars" aria-hidden="true">
+      {
+        PARTITION_MB.map((mb, i) => (
+          <li class:list={['skc-bar', { 'is-hot': i === HOT_INDEX }]} style={`--r: ${i}`}>
+            <span class="skc-name">{i === HOT_INDEX ? 'Hot' : `T${i + 1}`}</span>
+            <span class="skc-track">
+              <span class="skc-fill" style={`--w: ${pct(mb)}`} />
+            </span>
+            <span class="skc-val">{mb.toFixed(1)} MB</span>
+          </li>
+        ))
+      }
+    </ol>
+    <span class="skc-marker" data-marker style={`--x: ${pct(initial.thresholdMb)}`} aria-hidden="true">
+      <span class="skc-marker-label" data-marker-label>
+        threshold {initial.thresholdMb.toFixed(1)} MB{initial.thresholdMb > SCALE ? ' (off scale)' : ''}
+      </span>
+    </span>
+  </div>
+
+  <div class="skc-split" aria-hidden="true">
+    <span class="skc-name skc-name-split">Hot, split</span>
+    <span class:list={['skc-pieces', { 'is-whole-row': initial.piecesMb.length <= 1 }]} data-pieces style={`--w: ${pct(initial.hotMb)}`}>
+      {
+        initial.piecesMb.length > 1 ? (
+          initial.piecesMb.map((p) => (
+            <span class="skc-piece" style={`flex-grow: ${p}`}>
+              {p.toFixed(1)}
+            </span>
+          ))
+        ) : (
+          <span class="skc-piece is-whole">not split, 1 task</span>
+        )
+      }
+    </span>
+  </div>
+
+  <div class="skc-result">
+    <p class="skc-result-label">Result</p>
+    <p class="skc-summary" data-summary aria-live="polite">{initial.summary}</p>
+  </div>
+
+  <details class="skc-all">
+    <summary>The real runs this was checked against</summary>
+    <div class="skc-tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Threshold</th>
+            <th scope="col">Advisory</th>
+            <th scope="col">Map tasks</th>
+            <th scope="col">What Spark did with the hot partition</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            MEASURED.map((m) => (
+              <tr>
+                <td>{m.threshold}</td>
+                <td>{m.advisory}</td>
+                <td>{m.maps}</td>
+                <td>{m.pieces}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import { check, type Inputs } from './skew-check';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-skc]')) {
+    const prefix = root.dataset.prefix ?? 'skc';
+    const scale = Number(root.dataset.scale ?? 90);
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const summary = root.querySelector<HTMLElement>('[data-summary]');
+    const marker = root.querySelector<HTMLElement>('[data-marker]');
+    const markerLabel = root.querySelector<HTMLElement>('[data-marker-label]');
+    const pieces = root.querySelector<HTMLElement>('[data-pieces]');
+
+    const read = (field: string) =>
+      Number(root.querySelector<HTMLInputElement>(`input[name="${prefix}-${field}"]:checked`)?.value);
+
+    const update = () => {
+      const inputs = {
+        thresholdMb: read('threshold'),
+        advisoryMb: read('advisory'),
+        mapTasks: read('maps'),
+      } as Inputs;
+      const r = check(inputs);
+      if (marker) marker.style.setProperty('--x', `${Math.min(100, (r.thresholdMb / scale) * 100).toFixed(1)}%`);
+      if (markerLabel) {
+        markerLabel.textContent = `threshold ${r.thresholdMb.toFixed(1)} MB${r.thresholdMb > scale ? ' (off scale)' : ''}`;
+      }
+      if (pieces) {
+        pieces.replaceChildren();
+        pieces.classList.toggle('is-whole-row', r.piecesMb.length <= 1);
+        if (r.piecesMb.length > 1) {
+          for (const p of r.piecesMb) {
+            const el = document.createElement('span');
+            el.className = 'skc-piece';
+            el.style.flexGrow = String(p);
+            el.textContent = p.toFixed(1);
+            pieces.append(el);
+          }
+        } else {
+          const el = document.createElement('span');
+          el.className = 'skc-piece is-whole';
+          el.textContent = r.verdict === 'skewed-no-split' ? 'skewed, but not split: 1 task' : 'not split, 1 task';
+          pieces.append(el);
+        }
+      }
+      root.dataset.verdict = r.verdict;
+      if (summary) summary.textContent = r.summary;
+    };
+
+    for (const input of root.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
+      input.disabled = false;
+      input.addEventListener('change', update);
+    }
+    root.classList.add('is-live');
+    update();
+
+    // The first time the widget scrolls into view, the bars grow from zero, one after another.
+    if (!reduce.matches && 'IntersectionObserver' in window) {
+      root.classList.add('is-armed');
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            root.classList.add('is-in');
+            io.disconnect();
+          }
+        },
+        { threshold: 0.25 },
+      );
+      io.observe(root);
+    }
+  }
+</script>
+
+<style>
+  .skc {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .skc code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .skc-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .skc-kicker,
+  .skc-result-label {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .skc-title {
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .skc-hint {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .skc-controls {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  .skc-field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .skc-label {
+    float: left;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    padding: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .skc-setting {
+    color: var(--text-muted);
+    font-weight: 400;
+    overflow-wrap: anywhere;
+  }
+
+  /* Segmented control built from real radio buttons */
+  .skc-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-self: start;
+    max-width: 100%;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .skc-seg label {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+  }
+
+  .skc-seg label + label {
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .skc-seg input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .skc-seg span {
+    flex: 1 1 auto;
+    padding: 0.35rem 0.8rem;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 550;
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  .skc-seg input:checked + span {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  .skc-seg input:focus-visible + span {
+    outline: 2px solid var(--signal);
+    outline-offset: -4px;
+    box-shadow: inset 0 0 0 4px var(--bg);
+  }
+
+  .skc-seg input:disabled {
+    cursor: default;
+  }
+
+  .skc:not(.is-live) .skc-seg input:not(:checked) + span {
+    color: var(--text-muted);
+  }
+
+  /* Bars: name | track | value. The marker sits over the track column. */
+  .skc {
+    --name-w: 4.25rem;
+    --val-w: 4.5rem;
+  }
+
+  .skc-chart {
+    position: relative;
+    margin-top: var(--space-5);
+    padding-top: 1.5rem;
+  }
+
+  .skc-bars {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .skc-bar,
+  .skc-split {
+    display: grid;
+    grid-template-columns: var(--name-w) 1fr var(--val-w);
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .skc-name {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .skc-track {
+    display: block;
+    height: 16px;
+    border-radius: 3px;
+    background: var(--bg);
+  }
+
+  .skc-fill {
+    display: block;
+    width: var(--w);
+    height: 100%;
+    border-radius: 3px;
+    background: var(--rule-strong);
+    forced-color-adjust: none;
+    transition: width 0.6s ease;
+    transition-delay: calc(var(--r, 0) * 60ms);
+  }
+
+  .skc-bar.is-hot .skc-fill {
+    background: var(--caution);
+  }
+
+  .skc-bar.is-hot .skc-name,
+  .skc-bar.is-hot .skc-val {
+    color: var(--text);
+    font-weight: 650;
+  }
+
+  .skc.is-armed:not(.is-in) .skc-fill {
+    width: 0;
+  }
+
+  .skc-val {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .skc-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--name-w) + var(--space-2));
+    right: calc(var(--val-w) + var(--space-2));
+    pointer-events: none;
+  }
+
+  .skc-marker::before {
+    position: absolute;
+    top: 1.25rem;
+    bottom: 0;
+    left: var(--x);
+    border-left: 2px dashed var(--signal);
+    content: '';
+    transition: left 0.4s ease;
+  }
+
+  .skc-marker-label {
+    position: absolute;
+    top: 0;
+    left: var(--x);
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transform: translateX(-100%);
+    transition: left 0.4s ease;
+  }
+
+  .skc-split {
+    margin-top: var(--space-3);
+  }
+
+  .skc-name-split {
+    white-space: normal;
+  }
+
+  .skc-pieces {
+    display: flex;
+    gap: 3px;
+    width: var(--w);
+    min-width: 0;
+    grid-column: 2 / 3;
+  }
+
+  .skc-pieces.is-whole-row {
+    width: 100%;
+    grid-column: 2 / 4;
+  }
+
+  /* Pieces are rebuilt by the script, so they need styles that reach new nodes. */
+  .skc-pieces :global(.skc-piece) {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.15rem 0.25rem;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--signal);
+    color: var(--on-signal);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-align: center;
+    text-overflow: clip;
+    white-space: nowrap;
+    forced-color-adjust: none;
+  }
+
+  .skc-pieces :global(.skc-piece.is-whole) {
+    border: 1.5px dashed var(--caution);
+    background: transparent;
+    color: var(--text);
+    font-weight: 550;
+    text-align: left;
+  }
+
+  .skc-result {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1.5px solid var(--signal);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+
+  .skc-summary {
+    margin-top: var(--space-1);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  .skc-all {
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+  }
+
+  .skc-all summary {
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .skc-tablewrap {
+    margin-top: var(--space-2);
+    overflow-x: auto;
+  }
+
+  .skc-all table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .skc-all th,
+  .skc-all td {
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .skc-all td {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @container (max-width: 380px) {
+    .skc {
+      padding: var(--space-4);
+    }
+
+    .skc-chart,
+    .skc-split {
+      --name-w: 2.75rem;
+      --val-w: 3.75rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skc-fill,
+    .skc-marker::before,
+    .skc-marker-label {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .skc-seg input:checked + span {
+      outline: 2px solid CanvasText;
+      outline-offset: -3px;
+    }
+
+    .skc-fill,
+    .skc-pieces :global(.skc-piece) {
+      background: CanvasText;
+      color: Canvas;
+    }
+  }
+</style>
