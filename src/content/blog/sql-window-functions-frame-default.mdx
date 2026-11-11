@@ -1,0 +1,287 @@
+---
+title: 'Why is my running total wrong? SQL window functions in 10 minutes'
+description: 'Window functions from first principles: PARTITION BY, ORDER BY, frames, ranking ties, and the hidden default that changes running totals. With the interview answer.'
+pubDate: 2026-11-11T16:00:00Z
+draft: true
+tags:
+  - sql
+  - fundamentals
+  - interviews
+---
+
+import Flow from '../../components/viz/Flow.astro';
+import Matrix from '../../components/viz/Matrix.astro';
+import Callout from '../../components/viz/Callout.astro';
+import WindowFrame from '../../components/viz/WindowFrame.astro';
+
+Here's a SQL interview question you have probably seen, or will:
+
+> For every order, show the customer's running total of what they've spent so far.
+
+Most candidates write something like this:
+
+```sql
+SELECT customer_id, order_id, order_date, amount,
+       SUM(amount) OVER (PARTITION BY customer_id ORDER BY order_date) AS running_total
+FROM orders;
+```
+
+It runs. It looks right. Then you notice 2 orders from the same day have the *same* running total, and the first of them already includes the second.
+
+That isn't a bug in your database. It's a default that's easy to miss because you never type it, and every engine I checked uses it.
+
+In this post: what a window function is, the 3 parts of `OVER (...)`, how ranking handles ties, the default frame (with a widget you can click), the `LAST_VALUE` trap, why "latest row per key" can quietly return different rows on different runs, and how to answer all of it in an interview.
+
+## The running example
+
+One tiny table for the whole post. 2 customers, 8 orders. Look at the dates: orders 102 and 103 are on the same day, and so are 107 and 108. Those ties are where everything interesting happens.
+
+<div role="region" aria-label="The orders table" tabindex="0" style="overflow-x: auto">
+
+| customer_id | order_id | order_date | amount |
+| --- | --- | --- | --- |
+| ana | 101 | 2026-11-03 | 12 |
+| ana | 102 | 2026-11-05 | 30 |
+| ana | 103 | 2026-11-05 | 8 |
+| ana | 104 | 2026-11-09 | 20 |
+| ana | 105 | 2026-11-12 | 15 |
+| ben | 106 | 2026-11-04 | 50 |
+| ben | 107 | 2026-11-10 | 25 |
+| ben | 108 | 2026-11-10 | 5 |
+
+</div>
+
+Every result below comes from running these queries on this table in DuckDB 2.0.0, SQLite 3.53.1 and Spark 4.3.0. On the original insert order, all 3 engines agreed on every query that all 3 could run. The exceptions come up where they matter. Setup details are at the end.
+
+## What a window function is
+
+Plain version first: **a window function computes something over a group of related rows, but keeps every row.**
+
+Compare it with `GROUP BY`. `SUM(amount) ... GROUP BY customer_id` gives you 2 rows: ana 85, ben 80. The orders are gone.
+
+`SUM(amount) OVER (PARTITION BY customer_id)` gives you all 8 orders back, and each one carries its customer's total next to it: 85 on each of ana's 5 rows, 80 on each of ben's 3. That's why window functions are the tool for "compare each row to its group": share of total, rank within a group, difference from the previous row.
+
+<Flow
+  title="GROUP BY versus a window function, same SUM"
+  steps={[
+    { label: '8 orders in', note: '2 customers' },
+    { label: 'GROUP BY customer_id', note: '2 rows out: ana 85, ben 80', tone: 'muted' },
+    { label: 'OVER (PARTITION BY customer_id)', note: '8 rows out, each with its customer total', tone: 'signal' },
+  ]}
+/>
+
+One more thing worth knowing early: window functions run *after* `WHERE`, `GROUP BY` and `HAVING`, and before the final `ORDER BY` and `LIMIT`. So you can't filter on a window function in `WHERE`. Hold that thought, it comes back later.
+
+## The 3 parts of OVER (...)
+
+Everything inside `OVER (...)` answers one of 3 questions about the current row:
+
+1. **PARTITION BY**: who are my neighbors? Rows with the same `customer_id` form one partition. Ana's orders never see Ben's.
+2. **ORDER BY**: in what order do my neighbors line up? Here, by `order_date`.
+3. **The frame**: which of those neighbors do I actually look at? "Everything before me", "the 3 rows around me", "the whole partition".
+
+<Flow
+  title="How the engine builds the window for one row"
+  steps={[
+    { label: 'PARTITION BY customer_id', note: 'keep only the same customer' },
+    { label: 'ORDER BY order_date', note: 'line them up' },
+    { label: 'Frame', note: 'pick the slice this row sees', tone: 'signal' },
+    { label: 'Function', note: 'SUM, AVG, LAST_VALUE... over that slice' },
+  ]}
+/>
+
+Part 3 is the one people skip. If you don't write a frame, you still get one. Which one depends on whether you wrote `ORDER BY`. We'll get there in a minute.
+
+## Ranking: 3 functions, 3 answers to a tie
+
+Ranking functions number the rows in each partition. The only difference between the 3 common ones is what they do with a tie. Here's ana's orders ranked by `order_date`:
+
+<Matrix
+  title="Ana's orders, ranked by order_date (measured)"
+  columns={['Order', 'order_date', 'ROW_NUMBER', 'RANK', 'DENSE_RANK']}
+  rows={[
+    ['101', 'Nov 3', '1', '1', '1'],
+    ['102', 'Nov 5', '2', '2', '2'],
+    ['103', 'Nov 5', '3', '2', '2'],
+    ['104', 'Nov 9', '4', '4', '3'],
+    ['105', 'Nov 12', '5', '5', '4'],
+  ]}
+/>
+
+- `ROW_NUMBER` never ties. 102 and 103 get 2 and 3, and nothing in the query says which gets which.
+- `RANK` gives ties the same number and then skips: 2, 2, 4. Think of a race where 2 people share silver and nobody gets bronze.
+- `DENSE_RANK` gives ties the same number and doesn't skip: 2, 2, 3.
+
+Ranking functions ignore the frame completely. They only care about `PARTITION BY` and `ORDER BY`. I checked: DuckDB and SQLite silently ignore a frame clause on `RANK()`. Spark refuses any frame other than the one it uses internally for ranking (`ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`), with "Window Frame ... must match the required frame".
+
+## The default frame, and the running total surprise
+
+Now back to the interview question. When you write `ORDER BY` inside `OVER` and no frame, you get this one, in PostgreSQL, DuckDB, SQLite and Spark alike:
+
+```sql
+RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+```
+
+"From the start of the partition up to the current row" sounds like a running total. The catch is the word `RANGE`. In `RANGE` mode, "current row" doesn't mean this row. It means **this row and all its peers**, where peers are rows with the same `ORDER BY` value.
+
+The [PostgreSQL docs](https://www.postgresql.org/docs/18/sql-expressions.html#SYNTAX-WINDOW-FUNCTIONS) put it exactly: the default frame is "all rows from the partition start up through the current row's last `ORDER BY` peer". [DuckDB's docs](https://duckdb.org/docs/stable/sql/functions/window_functions) say the same, and in Spark you can see it in the plan: I didn't write a frame, and `explain()` printed `specifiedwindowframe(RangeFrame, unboundedpreceding$(), currentrow$())`.
+
+So for ana:
+
+- Order 101 sees only itself: **12**.
+- Order 102 sees 101, itself, *and* its peer 103: 12 + 30 + 8 = **50**.
+- Order 103 sees the same 3 rows: **50**.
+
+Switch to `ROWS`, which counts physical rows, and order 102 sees only 101 and itself: 12 + 30 = **42**. Then 103 gets 50. Try it:
+
+<WindowFrame caption="Frame rules as documented by PostgreSQL 18, DuckDB and SQLite, and as applied by Spark 4.3.0's WindowResolution. Every value and every 'varies' flag was checked against DuckDB 2.0.0 and SQLite 3.53.1 over all 4 orders of the tied rows." />
+
+Click order 102 and flip between the first 2 frames. That's the whole difference: `RANGE` treats the tie as one step, `ROWS` walks through it one row at a time.
+
+<Callout label="Which one is right?">
+Neither is wrong; they answer different questions. My take: if you want "total spent up to and including this *day*", the default `RANGE` is correct and stable. If you want "total up to and including this *order*", you need `ROWS` **and** a tiebreaker in `ORDER BY`, like `ORDER BY order_date, order_id`. Without the tiebreaker, `ROWS` picks an order for the tied rows that you didn't choose.
+</Callout>
+
+That last point is easy to miss. Notice the "varies" flags in the widget when you pick `ROWS ... CURRENT ROW`. With no tiebreaker, whether 102 gets 42 or 50 (and 103 gets 50 or 20) depends on which of the 2 tied rows the engine happens to put first. I loaded the table in all 4 possible orders of the tied rows: DuckDB and SQLite both gave 4 different sets of running totals. Same data, same query.
+
+And when there's no `ORDER BY` at all, the default frame is the whole partition. That's why `SUM(amount) OVER (PARTITION BY customer_id)` gave the customer total earlier.
+
+## The LAST_VALUE trap
+
+Same default, sneakier result. Say you want each order next to the customer's most recent order amount:
+
+```sql
+LAST_VALUE(amount) OVER (PARTITION BY customer_id ORDER BY order_date)
+```
+
+You'd expect 15 on every one of ana's rows, since order 105 is her latest. What I got: 12, 8, 8, 20, 15. Each row returned the last row of *its own* frame, and with the default frame that's the current row (or its last peer). It's not even stable: with the rows loaded in another order, 102 and 103 got 30 instead of 8, because "last peer" is an arbitrary pick among ties. PostgreSQL's [window function docs](https://www.postgresql.org/docs/18/functions-window.html) warn about exactly this: with the default frame, `LAST_VALUE` is "likely to give unhelpful results".
+
+The fix is to make the frame cover the whole partition, and add a tiebreaker so "last" means one specific row:
+
+```sql
+LAST_VALUE(amount) OVER (
+  PARTITION BY customer_id ORDER BY order_date, order_id
+  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+```
+
+Now every ana row says 15, and every ben row says 5. You can also flip it around: `FIRST_VALUE(amount)` with `ORDER BY order_date DESC, order_id DESC` works with the default frame, because the first row of the partition is always in it. Keep the tiebreaker, though. Without it, ben's value was 25 for some insert orders and 5 for others.
+
+## "Latest row per key" and the tie nobody sees
+
+This is probably the most common window function in real pipelines: deduplicate to the latest row per key.
+
+```sql
+SELECT * FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date DESC) AS rn
+  FROM orders
+) t
+WHERE rn = 1;
+```
+
+For ana, it's order 105 every time. For ben, the latest date has 2 orders, 107 and 108, and `ROW_NUMBER` has to pick one. Nothing in the query says which.
+
+So I tested it. Across 52 different insert orders, DuckDB and SQLite each returned 107 for some loads and 108 for others. In Spark, I shuffled the input and repartitioned it 24 ways (1 to 8 partitions, 3 shuffles each), and the winner for ben flipped between the 2 as well.
+
+<Matrix
+  title="Which order is ben's latest? (measured)"
+  columns={['ORDER BY inside OVER', 'DuckDB', 'SQLite', 'Spark']}
+  rows={[
+    ['order_date DESC', '107 or 108', '107 or 108', '107 or 108'],
+    ['order_date DESC, order_id DESC', '108 always', '108 always', '108 always'],
+  ]}
+  chips={{ '107 or 108': 'caution', '108 always': 'signal' }}
+  caption="DuckDB and SQLite: 52 insert orders each. Spark: 24 shuffled and repartitioned inputs. The tiebreaker made every run agree."
+/>
+
+This is the kind of bug that can pass your tests and then change a row in production when data arrives in a different order, for example after a cluster resize. The fix is one column: make the `ORDER BY` unique. If there's no natural tiebreaker, use an ingestion timestamp or a sequence number. If two rows really are identical in every column, it doesn't matter which one you keep.
+
+If your engine supports `QUALIFY`, you can skip the subquery. It filters on window results the way `HAVING` filters on aggregates:
+
+```sql
+SELECT * FROM orders
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY customer_id ORDER BY order_date DESC, order_id DESC) = 1;
+```
+
+DuckDB and Spark 4.3.0 both ran this for me (Spark's [SQL reference](https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html) documents `QUALIFY` starting with the 4.2 docs). SQLite threw a syntax error. Remember the "runs after `WHERE`" point from earlier? That's why `QUALIFY` exists.
+
+## What a window costs in Spark
+
+One quick look under the hood, because it comes up in Spark interviews. For the running total, Spark's physical plan had 3 steps that matter:
+
+<Flow
+  title="Spark 4.3.0 physical plan for the running total (measured)"
+  steps={[
+    { label: 'Exchange hashpartitioning(customer_id, 200)', note: 'a shuffle: all of a customer\'s rows move to one partition', tone: 'caution' },
+    { label: 'Sort by customer_id, order_date', note: 'line up each partition' },
+    { label: 'Window', note: 'one pass over the sorted rows', tone: 'signal' },
+  ]}
+/>
+
+So `PARTITION BY` is also your shuffle key. Two consequences:
+
+- A customer with millions of orders becomes one big task. That's [data skew](../spark-data-skew-explained/), same as in a join.
+- No `PARTITION BY` at all means one partition for the whole table. Spark warned me about it when I ran `SUM(amount) OVER (ORDER BY order_date)`: "No Partition Defined for Window operation! Moving all data to a single partition, this can cause serious performance degradation."
+
+## In the interview
+
+**How it's usually asked:** "running total per customer", "top 3 products per category", "latest record per key", "difference from the previous row", or "what's the difference between RANK and DENSE_RANK?"
+
+**What a strong answer covers:**
+
+- Window functions keep every row; `GROUP BY` collapses them.
+- The 3 parts: `PARTITION BY`, `ORDER BY`, frame.
+- `ROW_NUMBER` versus `RANK` versus `DENSE_RANK`, explained with a tie.
+- For a running total, say out loud what happens on ties. "The default frame is `RANGE`, so rows with the same date get the same total. If I want one total per order, I'll use `ROWS` and add `order_id` as a tiebreaker." My take: this sentence is what makes an answer sound understood rather than memorized.
+- For dedup, make the `ORDER BY` unique, and mention `QUALIFY` if the engine has it.
+
+**Likely follow-ups:**
+
+- "Why can't I put `ROW_NUMBER()` in the `WHERE` clause?" Because window functions are computed after `WHERE`. Use a subquery, a CTE or `QUALIFY`.
+- "Why does `LAST_VALUE` return the current row?" The default frame ends at the current row, or its last peer.
+- "What's a 7-day moving average?" A frame with an offset: `ROWS BETWEEN 6 PRECEDING AND CURRENT ROW` for 7 rows, or `RANGE BETWEEN INTERVAL 6 DAYS PRECEDING AND CURRENT ROW` for 7 calendar days when some days have no rows. (Check your engine's syntax for the interval.)
+- "How does Spark execute this, and what happens with a hot key?" Shuffle by the partition key, sort, then one pass. A hot key means one huge task.
+
+## Cheat sheet
+
+<Matrix
+  title="Window functions, the defaults worth memorizing"
+  columns={['You write', 'You get', 'Watch out for']}
+  rows={[
+    ['OVER (PARTITION BY k)', 'Frame = the whole partition', 'Fine for totals and shares'],
+    ['OVER (PARTITION BY k ORDER BY d)', 'RANGE UNBOUNDED PRECEDING to CURRENT ROW, peers included', 'Tied rows share one running value'],
+    ['... ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW', 'A true per-row running value', 'Needs a unique ORDER BY to be stable'],
+    ['LAST_VALUE with the default frame', 'The current row or its last peer', 'Use a full frame, or FIRST_VALUE with DESC, plus a tiebreaker'],
+    ['ROW_NUMBER on a non-unique ORDER BY', 'An arbitrary pick among ties', 'Add a tiebreaker column'],
+    ['RANK / DENSE_RANK', 'Ties share a number; RANK skips after', 'A frame clause is ignored, or rejected by Spark'],
+    ['No PARTITION BY in Spark', 'Everything in 1 partition', 'One task does all the work'],
+  ]}
+/>
+
+## What I learned running this
+
+- All 3 engines agreed on the surprising results too. The default isn't one vendor's quirk: PostgreSQL, DuckDB, SQLite and Spark all document or apply the same one.
+- I expected unstable ties to need a big table to show up. They didn't: 8 rows and a few different insert orders were enough, in every engine.
+- Spark printing `RangeFrame` in `explain()` is a handy way to prove what frame you actually got.
+- Spark is stricter than DuckDB and SQLite about frames on ranking functions. It rejects a mismatched frame rather than ignoring it, which I'd call the more honest choice (opinion).
+
+## How to reproduce
+
+Python 3.13 with `duckdb` 2.0.0 and the built-in `sqlite3` module (SQLite 3.53.1), plus PySpark 4.3.0 from pip on OpenJDK 21 in local mode (1 or 2 cores), on a small cloud sandbox.
+
+- Load the 8 rows above into a table called `orders`, then run each query in this post.
+- Tie sensitivity: for DuckDB and SQLite, insert the rows in 52 orders (the original, reversed, and 50 seeded shuffles), plus all 4 orders of the tied pairs for the widget check. For Spark, sort by `rand(seed)` for 3 seeds and `repartition(n)` for n from 1 to 8 before the query.
+- Plans: `spark.sql(query).explain()`.
+
+These are correctness checks on a tiny table, not benchmarks.
+
+## References
+
+- [PostgreSQL 18: window function calls and frame clauses](https://www.postgresql.org/docs/18/sql-expressions.html#SYNTAX-WINDOW-FUNCTIONS)
+- [PostgreSQL 18: window functions, including the LAST_VALUE note](https://www.postgresql.org/docs/18/functions-window.html)
+- [SQLite: window functions, including the default frame-spec](https://www.sqlite.org/windowfunctions.html)
+- [DuckDB: window functions and framing](https://duckdb.org/docs/stable/sql/functions/window_functions)
+- [DuckDB: the QUALIFY clause](https://duckdb.org/docs/stable/sql/query_syntax/qualify)
+- [Spark SQL reference: window functions](https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-window.html)
+- [Spark SQL reference: SELECT, including QUALIFY](https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select.html)
+- [Spark 4.3.0 source: WindowResolution, where the default frame is filled in](https://github.com/apache/spark/blob/v4.3.0/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/WindowResolution.scala#L76-L82)

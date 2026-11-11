@@ -1,0 +1,528 @@
+---
+/*
+  Interactive: which rows does a window function see for the current row?
+  Pick the function, the frame clause and the current row. Rows in the frame
+  are highlighted, the result column shows what every row gets, and results
+  that depend on the order of tied rows are flagged.
+
+  Rules live in window-frame.ts and are shared with the server render, so
+  without JavaScript this shows the default state as a complete table.
+*/
+import { DEFAULT_STATE, FUNCS, FUNC_LABEL, MODES, MODE_LABEL, ORDERS, view } from './window-frame';
+
+interface Props {
+  /** Prefix for input names, so two widgets on one page stay independent. */
+  id?: string;
+  title?: string;
+  caption?: string;
+}
+
+const { id = 'wfr', title = 'Which rows does the window see?', caption } = Astro.props;
+
+const initial = view(DEFAULT_STATE);
+const inFrame = new Set(initial.frame);
+const customers = [...new Set(ORDERS.map((o) => o.customer))];
+const shortDate = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+---
+
+<figure class="wfr" data-wfr data-prefix={id}>
+  <p class="wfr-head">
+    <span class="wfr-kicker">Interactive</span>
+    <span class="wfr-title">{title}</span>
+  </p>
+  <p class="wfr-hint">
+    Pick a function, a frame and a current row. Highlighted rows are the frame: the rows the function sees for the
+    current row. Orders 102 and 103 share a date, and so do 107 and 108.
+  </p>
+
+  <div class="wfr-controls">
+    <fieldset class="wfr-field">
+      <legend class="wfr-label">Function</legend>
+      <div class="wfr-seg">
+        {
+          FUNCS.map((f) => (
+            <label>
+              <input type="radio" name={`${id}-func`} value={f} checked={f === DEFAULT_STATE.func} disabled />
+              <span>{FUNC_LABEL[f]}</span>
+            </label>
+          ))
+        }
+      </div>
+    </fieldset>
+    <fieldset class="wfr-field">
+      <legend class="wfr-label">Frame clause</legend>
+      <div class="wfr-seg">
+        {
+          MODES.map((m) => (
+            <label>
+              <input type="radio" name={`${id}-mode`} value={m} checked={m === DEFAULT_STATE.mode} disabled />
+              <span>{MODE_LABEL[m]}</span>
+            </label>
+          ))
+        }
+      </div>
+    </fieldset>
+  </div>
+
+  <p class="wfr-sql"><code data-sql>{initial.sql}</code></p>
+
+  <table class="wfr-table">
+    <caption class="wfr-vh">Orders, the current row, the frame and each row's result</caption>
+    <thead>
+      <tr>
+        <th scope="col"><span class="wfr-vh">Current row</span></th>
+        <th scope="col">order_id</th>
+        <th scope="col">order_date</th>
+        <th scope="col" class="wfr-num">amount</th>
+        <th scope="col" class="wfr-num">result</th>
+      </tr>
+    </thead>
+    {
+      customers.map((c) => (
+        <tbody>
+          <tr class="wfr-part">
+            <th scope="colgroup" colspan="5">
+              partition: customer_id = '{c}'
+            </th>
+          </tr>
+          {ORDERS.map((o, i) =>
+            o.customer !== c ? null : (
+              <tr
+                class:list={['wfr-row', { 'is-in': inFrame.has(i), 'is-current': i === DEFAULT_STATE.current }]}
+                data-row={i}
+                style={`--r: ${i}`}
+              >
+                <td>
+                  <label class="wfr-pick">
+                    <input
+                      type="radio"
+                      name={`${id}-row`}
+                      value={i}
+                      checked={i === DEFAULT_STATE.current}
+                      disabled
+                      aria-label={`Make order ${o.orderId} the current row`}
+                    />
+                  </label>
+                </td>
+                <td class="wfr-mono">
+                  {o.orderId}
+                  <span class="wfr-tag" data-tag>
+                    {i === DEFAULT_STATE.current ? 'current' : inFrame.has(i) ? 'in frame' : ''}
+                  </span>
+                </td>
+                <td class="wfr-mono">{shortDate(o.date)}</td>
+                <td class="wfr-mono wfr-num">${o.amount}</td>
+                <td class="wfr-mono wfr-num">
+                  <span data-value>${initial.rows[i].value}</span>
+                  <span class="wfr-varies" data-varies hidden={!initial.rows[i].orderDependent}>
+                    varies
+                  </span>
+                </td>
+              </tr>
+            ),
+          )}
+        </tbody>
+      ))
+    }
+  </table>
+
+  <div class="wfr-result">
+    <p class="wfr-result-label">Result</p>
+    <p class="wfr-summary" data-summary aria-live="polite">{initial.summary}</p>
+  </div>
+
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import { view, type Func, type Mode } from './window-frame';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-wfr]')) {
+    const prefix = root.dataset.prefix ?? 'wfr';
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const summary = root.querySelector<HTMLElement>('[data-summary]');
+    const sqlEl = root.querySelector<HTMLElement>('[data-sql]');
+    const rows = [...root.querySelectorAll<HTMLTableRowElement>('[data-row]')];
+
+    const read = (field: string) =>
+      root.querySelector<HTMLInputElement>(`input[name="${prefix}-${field}"]:checked`)?.value ?? '';
+
+    const update = () => {
+      const current = Number(read('row'));
+      const v = view({ mode: read('mode') as Mode, func: read('func') as Func, current });
+      const frame = new Set(v.frame);
+      for (const tr of rows) {
+        const i = Number(tr.dataset.row);
+        const isCur = i === current;
+        tr.classList.toggle('is-in', frame.has(i));
+        tr.classList.toggle('is-current', isCur);
+        const tag = tr.querySelector<HTMLElement>('[data-tag]');
+        if (tag) tag.textContent = isCur ? 'current' : frame.has(i) ? 'in frame' : '';
+        const val = tr.querySelector<HTMLElement>('[data-value]');
+        if (val) val.textContent = `$${v.rows[i].value}`;
+        const varies = tr.querySelector<HTMLElement>('[data-varies]');
+        if (varies) varies.hidden = !v.rows[i].orderDependent;
+      }
+      if (sqlEl) sqlEl.textContent = v.sql;
+      if (summary) summary.textContent = v.summary;
+    };
+
+    for (const input of root.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
+      input.disabled = false;
+      input.addEventListener('change', update);
+    }
+    // Clicking anywhere on a row makes it the current row.
+    for (const tr of rows) {
+      tr.addEventListener('click', (e) => {
+        const radio = tr.querySelector<HTMLInputElement>('input[type="radio"]');
+        if (!radio || e.target === radio) return;
+        radio.checked = true;
+        update();
+      });
+    }
+    root.classList.add('is-live');
+    update();
+
+    // The first time the widget scrolls into view, the rows appear one after another.
+    if (!reduce.matches && 'IntersectionObserver' in window) {
+      root.classList.add('is-armed');
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            root.classList.add('is-in-view');
+            io.disconnect();
+          }
+        },
+        { threshold: 0.2 },
+      );
+      io.observe(root);
+    }
+  }
+</script>
+
+<style>
+  .wfr {
+    container-type: inline-size;
+    margin-block: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-m);
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .wfr code,
+  .wfr-mono {
+    font-family: var(--font-mono);
+  }
+
+  .wfr-vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .wfr-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .wfr-kicker,
+  .wfr-result-label {
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .wfr-title {
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .wfr-hint {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .wfr-controls {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  .wfr-field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .wfr-label {
+    float: left;
+    padding: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  /* Segmented control built from real radio buttons */
+  .wfr-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-self: start;
+    max-width: 100%;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .wfr-seg label {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+  }
+
+  .wfr-seg label + label {
+    border-left: 1px solid var(--rule-strong);
+  }
+
+  .wfr-seg input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .wfr-seg span {
+    flex: 1 1 auto;
+    padding: 0.35rem 0.8rem;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 550;
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  .wfr-seg input:checked + span {
+    background: var(--signal);
+    color: var(--on-signal);
+  }
+
+  .wfr-seg input:focus-visible + span {
+    outline: 2px solid var(--signal);
+    outline-offset: -4px;
+    box-shadow: inset 0 0 0 4px var(--bg);
+  }
+
+  .wfr-seg input:disabled {
+    cursor: default;
+  }
+
+  .wfr:not(.is-live) .wfr-seg input:not(:checked) + span {
+    color: var(--text-muted);
+  }
+
+  .wfr-sql {
+    margin-top: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-s);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .wfr-table {
+    width: 100%;
+    margin-top: var(--space-4);
+    border-collapse: separate;
+    border-spacing: 0 3px;
+    font-size: 0.8125rem;
+  }
+
+  .wfr-table th,
+  .wfr-table td {
+    padding: 0.4rem var(--space-2);
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  .wfr-table thead th {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  .wfr-table .wfr-num {
+    text-align: right;
+  }
+
+  .wfr-part th {
+    padding-top: var(--space-3);
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  .wfr-row td {
+    border-block: 1.5px solid transparent;
+    background: var(--bg);
+    color: var(--text-muted);
+    transition:
+      background-color 0.25s ease,
+      color 0.25s ease,
+      opacity 0.4s ease,
+      transform 0.4s ease;
+    transition-delay: 0s, 0s, calc(var(--r, 0) * 50ms), calc(var(--r, 0) * 50ms);
+  }
+
+  .wfr-row td:first-child {
+    width: 2rem;
+    border-left: 1.5px solid transparent;
+    border-radius: 6px 0 0 6px;
+  }
+
+  .wfr-row td:last-child {
+    border-right: 1.5px solid transparent;
+    border-radius: 0 6px 6px 0;
+  }
+
+  .wfr.is-live .wfr-row {
+    cursor: pointer;
+  }
+
+  .wfr-row.is-in td {
+    background: var(--surface-2);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .wfr-row.is-current td {
+    border-color: var(--signal);
+  }
+
+  .wfr.is-armed:not(.is-in-view) .wfr-row td {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  .wfr-pick {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .wfr-pick input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--signal);
+  }
+
+  .wfr-tag {
+    display: block;
+    color: var(--signal);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .wfr-tag:empty {
+    display: none;
+  }
+
+  .wfr-varies {
+    display: block;
+    color: var(--caution);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .wfr-varies[hidden] {
+    display: none;
+  }
+
+  .wfr-result {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1.5px solid var(--signal);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+
+  .wfr-summary {
+    margin-top: var(--space-1);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  figcaption {
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  @container (max-width: 380px) {
+    .wfr {
+      padding: var(--space-4);
+    }
+
+    .wfr-table th,
+    .wfr-table td {
+      padding-inline: 0.3rem;
+    }
+
+    .wfr-seg span {
+      padding-inline: 0.5rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wfr-row td {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .wfr-seg input:checked + span {
+      outline: 2px solid CanvasText;
+      outline-offset: -3px;
+    }
+
+    .wfr-row.is-in td {
+      border-block-color: CanvasText;
+    }
+
+    .wfr-row.is-current td {
+      border-color: Highlight;
+    }
+  }
+</style>
